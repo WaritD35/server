@@ -311,21 +311,22 @@ The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` a
 | Assessment Service | `tests/assessment/test_assessment_service.py` | 1 | PASSED |
 | Assessment Milestones | `tests/assessment/test_milestones.py` | 4 | PASSED |
 | Assessment Rules (Deterministic) | `tests/assessment/test_rules.py` | 9 | PASSED |
-| Assessment Frames + Debug API | `tests/assessment/test_assess_frames.py`, `tests/assessment/test_assessment_api.py` | — | PASSED |
-| Capture (models, service, interface, vision, API) | `tests/capture/` | — | PASSED |
+| Assessment Frames + Debug API | `tests/assessment/test_assess_frames.py`, `tests/assessment/test_assessment_api.py` | 17 | PASSED |
+| Capture (models, service, interface, vision, API) | `tests/capture/` | 48 | PASSED |
 | Companion Service | `tests/companion/test_companion_service.py` | 6 | PASSED |
 | Companion Validator | `tests/companion/test_validator.py` | 3 | PASSED |
-| Core Security, Admin, Storage, Users | `tests/core/` | 30 | PASSED |
-| Knowledge API, Generation, Review, Models | `tests/knowledge/` | 49 | PASSED |
-| MLOps Knowledge, LLM Factory & Runtime | `tests/mlops/` | 36 | PASSED |
-| MLOps Assessment Aggregate | `tests/mlops/test_assessment_aggregate.py` | — | PASSED |
-| MLOps Assessment Runtime | `tests/mlops/test_assessment_runtime.py` | — | PASSED |
-| MLOps Assessment Isolation | `tests/mlops/test_assessment_isolation.py` | — | PASSED |
+| Companion State API | `tests/api/test_companion_state.py` | 9 | PASSED |
+| Core Security, Admin, Storage, Users, VLM config | `tests/core/` | 33 | PASSED |
+| Knowledge API, Generation, Review, Models | `tests/knowledge/` | 48 | PASSED |
+| MLOps Knowledge, Runtime & Scenarios | `tests/mlops/test_knowledge_*.py`, `tests/mlops/test_scenarios_mock.py`, `tests/mlops/test_no_database.py` | 46 | PASSED |
+| MLOps Assessment Aggregate | `tests/mlops/test_assessment_aggregate.py` | 30 | PASSED |
+| MLOps Assessment Runtime | `tests/mlops/test_assessment_runtime.py` | 38 | PASSED |
+| MLOps Assessment Isolation | `tests/mlops/test_assessment_isolation.py` | 1 | PASSED |
 | MLOps LLM Factory (Ollama/OpenAI) | `tests/mlops/test_llm_factory.py` | 2 | PASSED |
-| Orchestrator API, Config, Worker | `tests/orchestrator/` | 16 | PASSED |
-| Orchestrator E2E 3-Branch Pipeline | `tests/orchestrator/test_pipeline_e2e.py` | 3 | PASSED |
-| Registry API & Interface | `tests/registry/` | 20 | PASSED |
-| **Total** | **All Tests** | **187** | **100% PASSED** |
+| Orchestrator API, Config, Worker | `tests/orchestrator/test_orchestrator_*.py` | 16 | PASSED |
+| Orchestrator E2E pipeline (3 branches + 2 skips) | `tests/orchestrator/test_pipeline_e2e.py` | 5 | PASSED |
+| Registry API & Interface | `tests/registry/` | 22 | PASSED |
+| **Total** | **All Tests** | **348** | **100% PASSED** |
 
 - **Ruff Code Style:** 0 errors across all source and test files.
-- **Mypy Static Typing:** Strict type-checking passed across 146 source files.
+- **Mypy Static Typing:** Strict type-checking passed across 201 source files.

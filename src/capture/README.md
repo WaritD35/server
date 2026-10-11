@@ -8,16 +8,15 @@ capture agent lives in the edge repository.)
 
 ## Responsibilities
 
-- Receive capture batches uploaded from the edge (scheduled, several times a day,
-  no manual intervention) and quality-check them.
-- Preprocess frames.
-- Segment the plant from the domestic background (on-prem segmentation service at
-  `SEGMENTATION_ENDPOINT`; model not in this repo), producing named crops
-  (e.g. `whole_plant`, `canopy_upper`, `canopy_lower`, `leaf_closeup_k`,
-  `soil_surface`).
-- Register and align the current frame against the reference so the two are
-  directly comparable; composite onto a single labelled canvas where the VLM
-  handles one image better than two.
+Live path: webcam grab → quality check → preprocess → two JPEGs (current and
+previous) for `run_probe`.
+
+- Map the plant's `device_id` to a server webcam (`CAPTURE_WEBCAM_MAP`), grab
+  one frame in memory, and quality-check it.
+- When quality passes, crop the plant (`whole_plant`) and record which previous
+  frame this one is aligned to. The probe receives the two JPEGs separately.
+- Edge-batch upload, on-prem segmentation (`SEGMENTATION_ENDPOINT`, named crops
+  beyond `whole_plant`), and a single labelled canvas are deferred.
 
 ## Data it owns
 

@@ -28,12 +28,16 @@ starts.
 
 ## Writing a stage
 
-Replace the stub in `stages.py` with a call to your context's function:
+Replace the stub in `stages.py` with a call to your context's function.
+Capture and assessment already do:
 
 ```python
+def run_capture(payload: StageInput) -> None:
+    result = capture_for_plant(session, payload.plant_id, payload.run_id)
+
 def run_assessment(payload: StageInput) -> None:
-    from assessment import run_battery
-    run_battery(payload.plant_id, run_id=payload.run_id)
+    assess_frames(session, payload.plant_id, payload.run_id, frames_run_id=payload.run_id)
+    evaluate_observation(session, payload.plant_id, payload.run_id)
 ```
 
 - **Return** when your result is stored — the next stage runs.
