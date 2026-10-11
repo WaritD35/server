@@ -388,15 +388,26 @@ def test_a_prompt_config_missing_a_key_is_unavailable(
     assert backend.calls == []
 
 
-@pytest.mark.parametrize("config", [None, {**CONFIG, "runs": 0}, {**CONFIG, "runs": "five"}])
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {**CONFIG, "runs": 0},
+        {**CONFIG, "runs": "five"},
+        {**CONFIG, "runs": 9},
+        {**CONFIG, "max_new_tokens": 2049},
+    ],
+)
 def test_an_unusable_prompt_config_is_unavailable(
     config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(runtime.prompts, "get", lambda *_, **__: FakePrompt(config))
-    use_backend(monkeypatch, FakeBackend(answer()))
+    backend = use_backend(monkeypatch, FakeBackend(answer()))
 
     with pytest.raises(AssessmentUnavailableError):
         run_probe(PROBE)
+
+    assert backend.calls == []
 
 
 @pytest.mark.parametrize(

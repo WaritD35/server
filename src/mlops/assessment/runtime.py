@@ -80,6 +80,8 @@ COMPONENT: Final = Component.ASSESSMENT
 
 #: Every key the prompt version's ``config`` must carry.
 CONFIG_KEYS: Final[tuple[str, ...]] = ("model", "runs", "temperature", "max_new_tokens")
+MAX_PROBE_RUNS = 8
+MAX_PROBE_NEW_TOKENS = 2048
 
 
 class AssessmentUnavailableError(RuntimeError):
@@ -174,9 +176,14 @@ class ProbeConfig:
             raise AssessmentUnavailableError(
                 f"the Langfuse prompt config is not usable: {error}"
             ) from error
-        if parsed.runs < 1 or parsed.max_new_tokens < 1 or parsed.temperature < 0:
+        if (
+            not 1 <= parsed.runs <= MAX_PROBE_RUNS
+            or not 1 <= parsed.max_new_tokens <= MAX_PROBE_NEW_TOKENS
+            or parsed.temperature < 0
+        ):
             raise AssessmentUnavailableError(
-                "the Langfuse prompt config needs runs >= 1, max_new_tokens >= 1 "
+                "the Langfuse prompt config needs "
+                f"runs 1..{MAX_PROBE_RUNS}, max_new_tokens 1..{MAX_PROBE_NEW_TOKENS} "
                 f"and temperature >= 0, got {parsed}"
             )
         return parsed

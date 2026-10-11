@@ -180,8 +180,9 @@ runtime sends the compiled text as the text part of a single user message next
 to the two images.
 
 Its `config` **must** carry `runs`, `temperature`, `max_new_tokens` and `model`.
-A missing key raises `AssessmentUnavailableError` (callers map that to 503);
-there are no in-repo defaults and no model name in the environment.
+A missing key, `runs` outside `1..8`, or `max_new_tokens` outside `1..2048` raises
+`AssessmentUnavailableError` (callers map that to 503); there are no in-repo
+defaults and no model name in the environment.
 
 Upload is **one-time and manual** in the Langfuse UI (there is no seed script
 and no in-repo prompt text). After the first version, edit and label in the UI.
