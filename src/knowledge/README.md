@@ -9,7 +9,8 @@ Few-shot **exemplar images** for the probes are kept in MinIO.
 
 - **Owns (Postgres schema):** `knowledge`
 - **Owns (MinIO):** `exemplars`
-- **Feeds:** `assessment` (probes), `advice` (actions)
+- **Feeds:** `assessment` (`get_species`, `get_care_knowledge`, and the approved
+  probe bundle), `advice` (actions)
 - **Calls out:** external LLM for probe generation (text only, never images)
 
 Nothing here is edited in place or deleted. Revising the research text inserts a
@@ -168,14 +169,21 @@ version nothing, and *why* it was wrong is the whole value of a human review.
 
 ```python
 from knowledge import get_species_probes   # (session, species_code) -> SpeciesProbesBundle | None
+from knowledge.interface import get_species, get_care_knowledge
 
 bundle = get_species_probes(session, "spath")
 bundle.model_dump(mode="json")   # -> {species_code, probe_set_id, status, is_stale, generated_at, probes: [...]}
 ```
 
-Returns the species' **approved** probe set (with every probe's actions and
-exemplars), or `None` if there is none. `assessment` and `advice` call this
-instead of touching the `knowledge` schema.
+- `get_species_probes(session, species_code)` — the species' **approved** probe
+  set (with every probe's actions and exemplars), or `None`. `advice` calls this
+  instead of touching the `knowledge` schema.
+- `get_species(session, species_code)` — catalogue row (`SpeciesRead`) or
+  `None`. `assessment.assess_frames` uses the scientific name (or the code if
+  the species is unregistered).
+- `get_care_knowledge(session, species_code, query_vector=None, *, limit=4, max_chars=2500)`
+  — botanical text for the species, or `None`. `assessment.assess_frames` passes
+  only `session` and `species_code`; missing knowledge becomes `""` with a warning.
 
 ## Internal design
 
@@ -185,7 +193,7 @@ src/knowledge/
 ├── generation.py       # document → draft probe set; the seam to mlops.knowledge.
 │                       #   No HTTP: an endpoint and a scheduler call the same function
 ├── review.py           # the human verdict → mlops.knowledge (best-effort)
-├── interface.py        # get_species_probes() — the in-process interface
+├── interface.py        # get_species_probes / get_species / get_care_knowledge
 ├── service.py          # DB reads/writes; no HTTP, no LLM, no mlops import
 ├── schemas.py          # Pydantic request/response + interface payloads
 ├── db.py               # KNOWLEDGE_SCHEMA, Base (own MetaData), JsonB, utcnow(),

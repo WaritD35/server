@@ -4,10 +4,10 @@ Every VLM / LLM call in the system goes through here, and so does every
 experiment behind those calls. **Langfuse** manages the prompts.
 
 > Status: `mlops/knowledge/` is **implemented** — the probe-generation agent, its
-> validation, its human-review score and its experiment runner. The other three
-> packages are still **templates**: function bodies are `raise NotImplementedError`
-> and the contents are placeholders for their owners. Read `knowledge/` as the
-> worked example of the shape the others follow.
+> validation, its human-review score and its experiment runner. `mlops/assessment/`
+> is **implemented** — `run_probe`, local|vllm backends, and aggregation.
+> `advice/` and `registry/` are still **templates**. Read `knowledge/` as the
+> worked example of the Langfuse shape; `assessment/` is the VLM counterpart.
 
 ## The stack
 
@@ -36,9 +36,10 @@ registry   ─┘
 
 **The dependency is one-way.** `mlops` never imports a bounded context — its
 entry points take plain values and dataclasses defined here, and the calling
-context maps its own models onto them (e.g. `assessment` flattens a
-`knowledge.schemas.ProbeRead` into an `mlops.assessment.ProbeInput`). Without
-this rule `knowledge → mlops → knowledge` closes a cycle.
+context maps its own models onto them (e.g. `assessment` builds an
+`mlops.assessment.ProbeInput` with `plant_id`, `species`, `plant_knowledge`,
+`previous_image` and `current_image`). Without this rule
+`knowledge → mlops → knowledge` closes a cycle.
 
 ## One package per component, one owner each
 
@@ -50,7 +51,7 @@ without a change to shared code rippling across all four.
 
 | Package | Model | Entry point the context calls | Owner |
 |---|---|---|---|
-| `mlops/assessment/` | VLM | `run_probe(ProbeInput) -> ProbeVerdict` | TODO |
+| `mlops/assessment/` | VLM (`VLM_PROVIDER=local` or `vllm`) | `run_probe(ProbeInput) -> ProbeVerdict` | implemented |
 | `mlops/advice/` | LLM | `generate_advice(AdviceInput) -> AdviceResult` | TODO |
 | `mlops/knowledge/` | LLM | `generate_probes(GenerateProbesInput) -> GenerateProbesResult` | TODO |
 | `mlops/registry/` | VLM | `identify_species(...) -> SpeciesGuess` | TODO |
@@ -169,6 +170,29 @@ Both are bootstrapped by `scripts/seed_langfuse_knowledge.py` (`--dry-run` print
 the prompt without sending it). That script is a **starting point, not the source
 of truth**: after the first run the prompt is edited and versioned in the Langfuse
 UI, and running the script again creates another version rather than updating v1.
+
+### What `assessment` needs in Langfuse
+
+A **text** prompt named **`assessment/plant_observation_pair`** with the
+`production` label, compiled with exactly `PROBE_VARIABLES = ("plant_knowledge",)`
+(the whole optional `Plant knowledge:\n…` section, or `""` when none). The
+runtime sends the compiled text as the text part of a single user message next
+to the two images.
+
+Its `config` **must** carry `runs`, `temperature`, `max_new_tokens` and `model`.
+A missing key raises `AssessmentUnavailableError` (callers map that to 503);
+there are no in-repo defaults and no model name in the environment.
+
+Upload is **one-time and manual** in the Langfuse UI (there is no seed script
+and no in-repo prompt text). After the first version, edit and label in the UI.
+
+### Notes (Tier 2)
+
+- `VLM_PROVIDER=local` runs the configured number of inferences (typically 5)
+  in-process; on CPU this can take minutes. Development only; production uses
+  `vllm`.
+- Assessment requires Langfuse credentials and the prompt above. There is no
+  in-repo prompt fallback.
 
 ## Bringing up a component's Langfuse project
 

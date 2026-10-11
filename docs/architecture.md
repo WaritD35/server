@@ -16,7 +16,7 @@
 1. **Modular Monolith with Bounded Contexts:** Each business domain lives in an isolated folder under `src/` with its own private PostgreSQL schema, SQLAlchemy metadata, and internal service logic.
 2. **Strict Context Isolation (No Cross-Schema Foreign Keys):** Bounded contexts never share database foreign keys. All cross-context references use immutable `UUID` values, and data dependencies are resolved via published Python interfaces (`<context>.interface`).
 3. **Universal UUID & Timezone Timestamps:** Every primary key and reference ID across all schemas is a native PostgreSQL `UUID` (`uuid.uuid4()`). Every timestamp is a timezone-aware `TIMESTAMPTZ` (`DateTime(timezone=True)`) normalized to UTC.
-4. **Deterministic Gatekeeper Pattern:** VLM assessment and milestone detection run purely algorithmic Python code (zero LLM calls, 0 tokens), protecting downstream LLMs from redundant inferences on healthy scans.
+4. **Deterministic Gatekeeper Pattern:** The VLM probe (`mlops.assessment.run_probe`) runs first and writes an observation. The Event Engine and milestone detection that follow are 0-token Python, so a healthy/stable scan does not invoke the advice or companion LLMs.
 5. **pgvector Botanical Knowledge:** Species knowledge and care guides are chunked, embedded, and indexed with `pgvector` directly in PostgreSQL, enabling fast semantic similarity search for Care Advisor RAG.
 6. **Alembic Multi-Schema Migrations:** All database schemas, extensions (`vector`), tables, and indexes are managed through version-controlled Alembic migrations (`include_schemas=True`).
 
@@ -55,6 +55,36 @@ erDiagram
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
         TIMESTAMPTZ archived_at
+    }
+
+    %% Vision Schema (owned by capture)
+    "vision.capture" {
+        UUID id PK
+        UUID plant_id "registry.plant.id"
+        UUID run_id "orchestrator.pipeline_run.id"
+        TEXT device_id
+        TIMESTAMPTZ captured_at
+        TEXT raw_object_key
+        INTEGER width
+        INTEGER height
+        REAL brightness
+        REAL blur_score
+        BOOLEAN quality_passed
+        TEXT quality_reason
+        TIMESTAMPTZ created_at
+    }
+
+    "vision.processed_frame" {
+        UUID id PK
+        UUID capture_id FK
+        UUID plant_id "registry.plant.id"
+        UUID run_id
+        TEXT object_key
+        TEXT crop_type
+        INTEGER width
+        INTEGER height
+        UUID aligned_to_frame_id
+        TIMESTAMPTZ processed_at
     }
 
     %% Assessment Schema
@@ -188,6 +218,8 @@ erDiagram
     %% Logical Relationships
     "auth.users" ||--o{ "registry.plant" : "owns (owner_id)"
     "auth.users" ||--o{ "action.care_event" : "logged_by"
+    "vision.capture" ||--o{ "vision.processed_frame" : "yields"
+    "registry.plant" ||--o{ "vision.capture" : "webcam_grabs"
     "registry.plant" ||--o{ "assessment.observation" : "daily_snapshots"
     "registry.plant" ||--o{ "assessment.plant_milestone" : "life_events"
     "registry.plant" ||--o{ "advice.care_plan" : "prescribed_plans"
@@ -209,14 +241,14 @@ erDiagram
 |---|---|---|---|
 | **`core`** | `auth` | User accounts, authentication, JWT tokens, hardware device provisioning | No |
 | **`registry`** | `registry` | Plant profiles, species binding, nickname, location, gamification (XP, level) | No |
-| **`capture`** | `capture` | MinIO image ingestion, Laplacian blur/lighting filter, crop segmentation | No |
-| **`assessment`** | `assessment` | VLM consensus ingestion, deterministic Event Engine rules, milestone detection | ❌ Deterministic (0 tokens) |
+| **`capture`** | `vision` | Server-side webcam (`CAPTURE_WEBCAM_MAP`), quality, preprocess, alignment; raw + processed frames in object storage | No |
+| **`assessment`** | `assessment` | VLM probe via `mlops.assessment.run_probe` (N runs + consensus), then 0-token Event Engine and milestone detection | VLM probe (mlops) + 0-token rules |
 | **`advice`** | `advice` | Care Advisor agent, diagnosis, CarePlan with 3NF normalized `care_plan_action` | ✅ Ollama / OpenAI via `mlops/advice/` + Langfuse |
 | **`companion`** | `companion` | 1st-person plant character persona projection, Two-Tier memory, fact validator | ✅ Ollama / OpenAI via `mlops/companion/` + Langfuse |
 | **`action`** | `action` | Append-only care logs (`care_event`), button click deduplication, watering timestamps | No |
 | **`knowledge`** | `knowledge` | Botanical research documents, exemplar photos, **pgvector** knowledge chunk search | Embedding model for chunk vectors |
 | **`orchestrator`**| `orchestrator`| Pipeline leasing (`claim_next`), stage state machine, distributed worker dispatch | No |
-| **`mlops`** | *(shared)* | Unified LLM factory (Ollama + OpenAI), Langfuse prompt management, traces | AI runtime infrastructure |
+| **`mlops`** | *(shared)* | Unified LLM factory (Ollama + OpenAI), VLM backends (`VLM_PROVIDER=local\|vllm`), Langfuse prompt management, traces | AI runtime infrastructure |
 
 ---
 
@@ -227,7 +259,9 @@ sequenceDiagram
     autonumber
     actor Cron as Device / Scheduler
     participant Orch as orchestrator.stages
+    participant Cap as capture.service
     participant Assess as assessment.service
+    participant MLOps_VLM as mlops.assessment (VLM)
     participant Adv as advice.service
     participant MLOps_Adv as mlops.advice (LLM)
     participant Comp as companion.service
@@ -237,16 +271,32 @@ sequenceDiagram
 
     Cron->>Orch: Start Pipeline Run (plant_id, run_id)
 
-    %% Stage 1: Assessment
-    Note over Orch,Assess: Stage 1: Assessment (Deterministic)
-    Orch->>Assess: run_assessment(plant_id, run_id)
-    Assess->>DB: Query latest observation & baseline
-    Assess->>Assess: Event Engine evaluate() + Milestone detect()
-    Assess->>DB: Store TriggerResult + PlantMilestones (assessment schema)
-    Assess-->>Orch: Done
+    %% Stage 1: Capture
+    Note over Orch,Cap: Stage 1: Capture (webcam)
+    Orch->>Cap: capture_for_plant(plant_id, run_id)
+    alt empty CAPTURE_WEBCAM_MAP / unmapped / busy / quality fail
+        Cap-->>Orch: StageSkipped (run skipped; quality-fail row kept)
+    else quality passed
+        Cap->>DB: vision.capture + vision.processed_frame
+        Cap-->>Orch: Done
+    end
 
-    %% Stage 2: Advice
-    Note over Orch,Adv: Stage 2: Advice (Conditional)
+    %% Stage 2: Assessment
+    Note over Orch,Assess: Stage 2: Assessment (VLM probe, then 0-token rules)
+    Orch->>Assess: assess_frames then evaluate_observation
+    alt no species / fewer than two frames
+        Assess-->>Orch: StageSkipped (baseline or species unset)
+    else
+        Assess->>MLOps_VLM: run_probe(ProbeInput)
+        MLOps_VLM-->>Assess: ProbeVerdict
+        Assess->>DB: Store Observation
+        Assess->>Assess: Event Engine evaluate() + Milestone detect()
+        Assess->>DB: Store TriggerResult + PlantMilestones (assessment schema)
+        Assess-->>Orch: Done
+    end
+
+    %% Stage 3: Advice
+    Note over Orch,Adv: Stage 3: Advice (Conditional)
     Orch->>Adv: run_advice(plant_id, run_id)
     Adv->>DB: Read TriggerResult
     alt Decision == NO_ACTION or REQUEST_MORE_INFORMATION
@@ -260,8 +310,8 @@ sequenceDiagram
         Adv-->>Orch: Done
     end
 
-    %% Stage 3: Companion
-    Note over Orch,Comp: Stage 3: Companion (Always Runs)
+    %% Stage 4: Companion
+    Note over Orch,Comp: Stage 4: Companion (Always Runs)
     Orch->>Comp: run_companion(plant_id, run_id)
     Comp->>DB: Read TriggerResult & CarePlan (if exists)
     Comp->>DB: Read 7-day observations (Tier 1 memory)
@@ -307,6 +357,7 @@ sequenceDiagram
 * **Migration Order:**
   1. `001_init_extensions_and_schemas`: Enables `vector`, creates schemas `auth`, `registry`, `action`, `knowledge`, `orchestrator`, `assessment`, `advice`, `companion`.
   2. `002_create_tables_and_indexes`: Creates all tables according to the ER diagram with `UUID` PKs, `TIMESTAMPTZ`, `JSONB`, and `VECTOR`.
+  3. `003_vision_schema` (`alembic/versions/003_create_vision_schema.py`): Creates schema `vision` and tables `vision.capture`, `vision.processed_frame`.
 * **Execution:** Run as an isolated `migrate` service in `compose.yaml` before `web` starts up:
   ```yaml
   migrate:

@@ -21,10 +21,13 @@ capture agent lives in the edge repository.)
 
 ## Data it owns
 
-- PostgreSQL schema `vision`: capture-batch and frame metadata, alignment
-  references, quality results.
-- MinIO: `captures` (raw frames), `frames-derived` (crops, aligned/composited
-  canvases). Captures are retained.
+- PostgreSQL schema `vision`:
+  - `vision.capture` — one webcam grab (quality result, raw object key, device).
+  - `vision.processed_frame` — a grab that passed quality (crop, alignment,
+    processed object key). Same-schema FK `capture_id` → `vision.capture.id`.
+- MinIO: `captures` (raw JPEG), `frames-derived` (processed JPEG). Captures are
+  retained. Keys: `{plant_id}/{yyyy}/{mm}/{dd}/{capture_id}.jpg` (raw) and
+  `{plant_id}/{yyyy}/{mm}/{dd}/{frame_id}_{crop_type}.jpg` (processed).
 
 ## Inputs
 
@@ -49,7 +52,8 @@ capture agent lives in the edge repository.)
 
 ## Driven by
 
-- `orchestrator` events (batch arrived) and `main_worker` (drain pending batches).
+- The orchestrator `capture` stage (`capture_for_plant` with the run's `run_id`).
+- The admin debug route (same function, `run_id=None`). Edge-batch drain is still planned.
 
 ## HTTP surface
 

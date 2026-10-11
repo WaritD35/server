@@ -22,9 +22,9 @@ starts.
 - **Calls:** `registry.list_plant_ids`, and one function per stage context
 - **Driven by:** `OrchestratorLoop`, a background thread `main_web` starts
 
-> Status: PoC. The stage functions in `stages.py` are **stubs** (log and
-> return) with a `TODO(<context>)` where each context's published function
-> goes. Errors are not handled beyond recording them — see below.
+> Status: PoC. `run_capture` and `run_assessment` are wired to their contexts;
+> advice and companion already call theirs. Errors are not handled beyond
+> recording them — see below.
 
 ## Writing a stage
 
@@ -39,6 +39,21 @@ def run_assessment(payload: StageInput) -> None:
 - **Return** when your result is stored — the next stage runs.
 - **Raise `StageSkipped("reason")`** when there is nothing to do (e.g. no new
   frames): the run ends as `skipped` and the later stages do not run.
+
+### Capture and assessment
+
+- `run_capture` calls `capture.service.capture_for_plant`. Raises `StageSkipped`
+  when `CAPTURE_WEBCAM_MAP` is empty, the device is unmapped, the webcam is
+  busy, or the quality check fails (the `vision.capture` row is still stored).
+  `CaptureDeviceError` (webcam / MinIO) is not skipped — the run **fails**.
+- `run_assessment` calls `assessment.service.assess_frames` (VLM probe, with
+  `frames_run_id=run_id`) then `evaluate_observation` (0-token rules). Raises
+  `StageSkipped` when species is unset or fewer than two processed frames exist
+  (baseline). `AssessmentRunError` and `AssessmentUnavailableError` fail the run.
+
+**Tier 2.** `VLM_PROVIDER=local` runs the inferences in-process on the
+orchestrator loop thread; on CPU this can take minutes. Development only;
+production uses `vllm`.
 
 ## Configuration — `config/orchestrator.toml`
 
@@ -92,7 +107,7 @@ src/orchestrator/
 ├── api.py       # /orchestrator router
 ├── worker.py    # tick() = queue due slots → execute queued runs; OrchestratorLoop
 ├── service.py   # schedule arithmetic + the queue (enqueue / claim / finish / reads)
-├── stages.py    # STAGES (order), StageInput, StageSkipped, the stub stage functions
+├── stages.py    # STAGES (order), StageInput, StageSkipped, the stage functions
 ├── config.py    # load_config() / parse_config() for config/orchestrator.toml
 ├── schemas.py   # RunRead / RunCreate / ScheduleRead
 ├── models.py    # PipelineRun

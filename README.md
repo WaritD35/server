@@ -34,17 +34,17 @@ flow.
 ### The assessment pipeline
 
 ```
-edge camera ──uploads frames──▶ orchestrator (event bus) ──routes──▶ capture (vision)
-                                                                        │
-        registry ──plant identity──────────────────────────────────────▶│
-        knowledge ──probe definitions─────────────────────────────────▶ assessment (VLM)
-        capture  ──segmented / aligned frames─────────────────────────▶│
-                                                                        │
-                                          internal state & verdicts ────▶ advice (LLM)
-                                                    diagnosis & actions ─▶ companion
-                                                       mood + utterances ─▶ orchestrator ──▶ edge display
+server webcam (CAPTURE_WEBCAM_MAP) ──▶ orchestrator ──▶ capture (vision)
+        (edge upload still planned)                         │
+        registry ──plant identity───────────────────────────▶│
+        knowledge ──species + care text─────────────────────▶ assessment (VLM probe, then 0-token rules)
+        capture  ──aligned frame pair───────────────────────▶│
+                                                              │
+                                internal state & verdicts ────▶ advice (LLM)
+                                          diagnosis & actions ─▶ companion
+                                             mood + utterances ─▶ orchestrator ──▶ edge display
 
-        mlops ──runs every VLM / LLM call above, and the experiments behind them
+        mlops ──runs every VLM / LLM call above (VLM_PROVIDER=local|vllm), and the experiments behind them
 ```
 
 ### Bounded contexts
@@ -52,7 +52,7 @@ edge camera ──uploads frames──▶ orchestrator (event bus) ──routes�
 | # | Context | Package | Role | Owns (Postgres schema) | Owns (MinIO) |
 |---|---------|---------|------|------------------------|--------------|
 | 1 | Plant Registry | `src/registry` | Identity & physical anchoring — plants, owners, species assignment, camera placement | `registry` | — |
-| 2 | Capture & Vision | `src/capture` | Visual data extraction — receive capture batches, quality-check, segment, register/align frames | `vision` | `captures`, `frames-derived` |
+| 2 | Capture & Vision | `src/capture` | Visual data extraction — server-side webcam (`CAPTURE_WEBCAM_MAP`; edge upload still planned), quality-check, preprocess, align frames | `vision` | `captures`, `frames-derived` |
 | 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species), versioned probe bundles | `knowledge` | `exemplars` |
 | 4 | Assessment | `src/assessment` | Internal-state inference — run probes on the VLM, aggregate N runs into verdict + severity + evidence + agreement | `assessment` | — |
 | 5 | Care Advice | `src/advice` | Interpretable reasoning — turn verdicts + history into a diagnosis, ranked actions, rationale and citations (external LLM, retrieval-grounded) | `advice` | — |
@@ -241,7 +241,7 @@ contexts reach it over the network using values from `.env`.
 
 | Service | Hosting | Interface | Used by |
 |---------|---------|-----------|---------|
-| VLM (probe execution, species ID) | On-prem, served with **vLLM** | OpenAI-compatible HTTP API (`VLM_API_BASE`) | `mlops` (for assessment, registry) |
+| VLM (probe execution, species ID) | On-prem **vLLM**, or in-process transformers | `VLM_PROVIDER=vllm` → OpenAI-compatible HTTP (`VLM_API_BASE`); `VLM_PROVIDER=local` → weights at `VLM_LOCAL_MODEL_PATH` (`uv sync --group vlm-local`) | `mlops` (for assessment, registry) |
 | Segmentation model | On-prem | HTTP API (`SEGMENTATION_ENDPOINT`) | capture |
 | LLM (advice, probe generation) | External API, text only | HTTP API (`LLM_API_BASE`) | `mlops` (for advice, knowledge) |
 | Langfuse (prompts, traces, datasets, scores) | Langfuse Cloud or self-hosted (`LANGFUSE_HOST`) | Langfuse SDK | `mlops` — one project **per component**, so one key pair each |
@@ -276,11 +276,21 @@ infrastructure:
 
 ```bash
 uv sync                              # .venv from the committed uv.lock (deps + dev group)
+uv sync --group vlm-local            # optional: in-process InternVL when VLM_PROVIDER=local
 uv run pytest
 uv run ruff check .
 uv run mypy
 uv run uvicorn main_web:app --app-dir src --reload
 ```
+
+Relevant environment variables (full list in `.env.example`):
+
+| Variable | Meaning |
+|----------|---------|
+| `VLM_PROVIDER` | `vllm` (default) or `local` |
+| `VLM_API_BASE` / `VLM_API_KEY` | OpenAI-compatible vLLM endpoint |
+| `VLM_LOCAL_MODEL_PATH` | Weights for `local` (default `models/internvl3_5-2b`) |
+| `CAPTURE_WEBCAM_MAP` | `device_id=webcam_index,...`; empty (default) = no capture |
 
 ---
 
