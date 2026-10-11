@@ -1963,7 +1963,7 @@ vlm-local = [
     { name = "timm", specifier = ">=1.0" },
     { name = "torch", specifier = ">=2.4" },
     { name = "torchvision", specifier = ">=0.19" },
-    { name = "transformers", specifier = ">=4.52" },
+    { name = "transformers", specifier = ">=4.56" },
 ]
 
 [[package]]
