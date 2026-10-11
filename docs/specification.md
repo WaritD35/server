@@ -319,14 +319,14 @@ The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` a
 | Core Security, Admin, Storage, Users, VLM config | `tests/core/` | 33 | PASSED |
 | Knowledge API, Generation, Review, Models | `tests/knowledge/` | 48 | PASSED |
 | MLOps Knowledge, Runtime & Scenarios | `tests/mlops/test_knowledge_*.py`, `tests/mlops/test_scenarios_mock.py`, `tests/mlops/test_no_database.py` | 46 | PASSED |
-| MLOps Assessment Aggregate | `tests/mlops/test_assessment_aggregate.py` | 30 | PASSED |
-| MLOps Assessment Runtime | `tests/mlops/test_assessment_runtime.py` | 38 | PASSED |
+| MLOps Assessment Aggregate | `tests/mlops/test_assessment_aggregate.py` | 31 | PASSED |
+| MLOps Assessment Runtime | `tests/mlops/test_assessment_runtime.py` | 40 | PASSED |
 | MLOps Assessment Isolation | `tests/mlops/test_assessment_isolation.py` | 1 | PASSED |
 | MLOps LLM Factory (Ollama/OpenAI) | `tests/mlops/test_llm_factory.py` | 2 | PASSED |
 | Orchestrator API, Config, Worker | `tests/orchestrator/test_orchestrator_*.py` | 16 | PASSED |
 | Orchestrator E2E pipeline (3 branches + 2 skips) | `tests/orchestrator/test_pipeline_e2e.py` | 5 | PASSED |
 | Registry API & Interface | `tests/registry/` | 22 | PASSED |
-| **Total** | **All Tests** | **348** | **100% PASSED** |
+| **Total** | **All Tests** | **351** | **100% PASSED** |
 
 - **Ruff Code Style:** 0 errors across all source and test files.
 - **Mypy Static Typing:** Strict type-checking passed across 201 source files.
