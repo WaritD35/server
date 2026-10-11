@@ -23,6 +23,7 @@ from advice.db import init_models as init_advice_models
 from api.controller import router as companion_router
 from api.exception import ApiException
 from api.model import BaseResponse
+from assessment import router as assessment_router
 from assessment.db import init_models as init_assessment_models
 from capture import router as capture_router
 from capture.db import init_models as init_capture_models
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(registry_router)
     app.include_router(capture_router)
+    app.include_router(assessment_router)
     app.include_router(orchestrator_router)
     app.include_router(action_router)
     app.include_router(companion_router)

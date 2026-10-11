@@ -1,5 +1,6 @@
-"""Service layer for assessment: deterministic rule evaluation & milestone detection."""
+"""Service layer for assessment: VLM probe, rule evaluation & milestone detection."""
 
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -12,6 +13,17 @@ from assessment.schemas import (
     TriggerDecision,
     TriggerResult,
 )
+from capture.interface import get_frame_pair, read_frame
+from core.storage import bucket_names
+from knowledge.interface import get_care_knowledge, get_species
+from mlops.assessment import ProbeInput, run_probe
+from registry.interface import get_plant
+
+logger = logging.getLogger(__name__)
+
+
+class AssessmentSkipped(Exception):  # noqa: N818 - reads as an outcome, not an error
+    """The plant cannot be assessed yet (no species, or fewer than two frames)."""
 
 SEVERITY_RANKS = {
     "mild": 1,
@@ -342,3 +354,78 @@ def evaluate_observation(
     session.commit()
     session.refresh(record)
     return record
+
+
+def assess_frames(
+    session: Session,
+    plant_id: uuid.UUID,
+    run_id: uuid.UUID,
+    *,
+    frames_run_id: uuid.UUID | None,
+) -> Observation:
+    """Run the VLM probe on a previous/current frame pair and store one observation.
+
+    ``run_id`` is stored on the observation. ``frames_run_id`` selects the pair
+    (the orchestrator passes the same id; the debug route passes ``None`` = the
+    latest two frames). Does not run the rules engine.
+
+    Raises :class:`AssessmentSkipped` when the plant is unknown, has no
+    ``species_code``, or fewer than two processed frames exist.
+    """
+    plant = get_plant(session, plant_id)
+    if plant is None:
+        raise AssessmentSkipped("plant not found")
+    if plant.species_code is None:
+        raise AssessmentSkipped("species not set")
+
+    pair = get_frame_pair(session, plant_id, frames_run_id)
+    if pair is None:
+        raise AssessmentSkipped("baseline frame stored; need two frames")
+
+    species = get_species(session, plant.species_code)
+    if species is None:
+        logger.warning(
+            "no catalogue entry for species %s; using the code as the name",
+            plant.species_code,
+        )
+        species_name = plant.species_code
+    else:
+        species_name = species.scientific_name
+
+    knowledge = get_care_knowledge(session, plant.species_code)
+    if knowledge is None:
+        logger.warning(
+            "no care knowledge for species %s; sending an empty section",
+            plant.species_code,
+        )
+        knowledge = ""
+
+    verdict = run_probe(
+        ProbeInput(
+            plant_id=str(plant_id),
+            species=species_name,
+            plant_knowledge=knowledge,
+            previous_image=read_frame(pair.previous),
+            current_image=read_frame(pair.current),
+        )
+    )
+    health_status = HealthStatus(verdict.health_status)
+    agreement = verdict.consensus.get("agreement")
+    bucket = bucket_names()["frames_derived"]
+    observation = Observation(
+        plant_id=plant_id,
+        run_id=run_id,
+        timestamp=pair.current.captured_at,
+        health_status=health_status.value,
+        confidence=0.0 if agreement is None else float(agreement),
+        observations_json=verdict.observations,
+        consensus_json=verdict.consensus,
+        image_refs_json=[
+            f"s3://{bucket}/{pair.previous.object_key}",
+            f"s3://{bucket}/{pair.current.object_key}",
+        ],
+    )
+    session.add(observation)
+    session.commit()
+    session.refresh(observation)
+    return observation
