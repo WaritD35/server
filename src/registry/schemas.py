@@ -51,6 +51,8 @@ class PlantRead(BaseModel):
     note: str | None
     created_at: datetime
     updated_at: datetime
+    level: int = 1
+    xp_ratio: float = 0.0
     archived_at: datetime | None
 
     @property

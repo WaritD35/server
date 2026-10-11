@@ -18,6 +18,7 @@ row it replaces instead of overwriting or deleting it.
 """
 
 from knowledge.models.action import ProbeAction
+from knowledge.models.chunk import KnowledgeChunk
 from knowledge.models.document import ResearchDocument
 from knowledge.models.exemplar import ProbeExemplar
 from knowledge.models.probe import Probe, ProbeSet
@@ -29,5 +30,6 @@ __all__ = [
     "ProbeExemplar",
     "ProbeSet",
     "ResearchDocument",
+    "KnowledgeChunk",
     "Species",
 ]

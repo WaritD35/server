@@ -268,3 +268,24 @@ def test_device_passed_on_to_a_new_owner(
     assert bobs.status_code == 201
     assert client_as(bob).get("/registry/devices/dev-1/plant").json()["id"] == bobs.json()["id"]
     assert client_as(alice).get(f"/registry/plants/{alices['id']}").json()["device_id"] is None
+
+
+def test_list_plants_pagination(client_as: ClientAs, alice: User) -> None:
+    client = client_as(alice)
+    for i in range(5):
+        client.post("/registry/plants", json={"name": f"plant-{i}"})
+
+    page1 = client.get("/registry/plants", params={"limit": 2, "offset": 0}).json()
+    assert len(page1) == 2
+    assert page1[0]["name"] == "plant-0"
+    assert page1[1]["name"] == "plant-1"
+
+    page2 = client.get("/registry/plants", params={"limit": 2, "offset": 2}).json()
+    assert len(page2) == 2
+    assert page2[0]["name"] == "plant-2"
+    assert page2[1]["name"] == "plant-3"
+
+    page3 = client.get("/registry/plants", params={"limit": 2, "offset": 4}).json()
+    assert len(page3) == 1
+    assert page3[0]["name"] == "plant-4"
+

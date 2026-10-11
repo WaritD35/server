@@ -202,15 +202,24 @@ def exchange_device_code(session: Session, device_code: str) -> tuple[Device, st
 
 
 def authenticate_device(session: Session, token: str) -> Device | None:
-    """The active device holding ``token``, or ``None``. Records ``last_seen_at``."""
+    """The active device holding ``token``, or ``None``. Records ``last_seen_at``.
+
+    The heartbeat update is throttled: ``last_seen_at`` is only written when it
+    is either NULL or older than 5 minutes, avoiding a database write
+    transaction on every high-frequency read poll.
+    """
     device = session.scalars(
         select(Device).where(
             Device.token_hash == hash_opaque_token(token), Device.status == "active"
         )
     ).one_or_none()
     if device is not None:
-        device.last_seen_at = _now()
-        session.commit()
+        now = _now()
+        if device.last_seen_at is None or (now - _aware(device.last_seen_at)) > timedelta(
+            minutes=5
+        ):
+            device.last_seen_at = now
+            session.commit()
     return device
 
 

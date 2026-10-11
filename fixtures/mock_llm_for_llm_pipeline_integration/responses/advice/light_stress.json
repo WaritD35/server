@@ -1,0 +1,22 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Light stress symptoms",
+  "assessment": "Monstera deliciosa is displaying light stress: pale, washed-out leaves with loss of fenestration development in new growth (indicates too little light) or brown scorched patches on leaf surfaces (indicates too much direct sun). Current placement needs adjustment.",
+  "confidence": 0.86,
+  "actions": [
+    {
+      "id": "act_lite01",
+      "priority": 1,
+      "action": "Move the plant to a location with bright indirect light — near an east-facing window or 3–5 feet from a south-facing window with a sheer curtain.",
+      "label": "Relocate plant",
+      "type": "move"
+    },
+    {
+      "id": "act_lite02",
+      "priority": 2,
+      "action": "Inspect for scorched patches — if present, trim damaged leaves and avoid any direct afternoon sun exposure.",
+      "label": "Check for burns",
+      "type": "inspect"
+    }
+  ]
+}

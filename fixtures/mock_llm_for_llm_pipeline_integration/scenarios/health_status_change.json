@@ -1,0 +1,36 @@
+{
+  "scenario": "health_status_change",
+  "description": "Health status flips from healthy to possibly_unhealthy (expected: CARE_ADVICE_REQUIRED)",
+  "observations": [
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "health_status": "healthy",
+      "consensus": {
+        "agreement": 1.0,
+        "runs": 5,
+        "model_stated_average": 0.95
+      },
+      "observations": [],
+      "image_refs": [
+        "file:///images/monstera_day1.jpg"
+      ]
+    },
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-02T10:00:00Z",
+      "health_status": "possibly_unhealthy",
+      "consensus": {
+        "agreement": 1.0,
+        "runs": 5,
+        "model_stated_average": 0.89
+      },
+      "observations": [],
+      "image_refs": [
+        "file:///images/monstera_day2.jpg"
+      ]
+    }
+  ]
+}

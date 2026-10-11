@@ -1,0 +1,66 @@
+{
+  "scenario": "multi_day_lifecycle",
+  "description": "6-day lifecycle: healthy → first_symptom → health_crisis → severe_episode → full_recovery",
+  "expected_decisions": [
+    "NO_ACTION",
+    "CARE_ADVICE_REQUIRED",
+    "CARE_ADVICE_REQUIRED",
+    "NO_ACTION",
+    "NO_ACTION",
+    "NO_ACTION"
+  ],
+  "expected_llm_calls": 2,
+  "mock_advice_file": "responses/advice/fungal_infection.json",
+  "steps": [
+    {
+      "day": 1,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling great",
+      "milestones_triggered": [],
+      "notes": "Healthy baseline."
+    },
+    {
+      "day": 2,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": { "action_count": 4 },
+      "milestones_triggered": ["first_symptom"],
+      "notes": "First symptom detected. Care plan with 4 actions."
+    },
+    {
+      "day": 3,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": { "action_count": 4 },
+      "milestones_triggered": ["health_crisis"],
+      "notes": "Condition worsened to unhealthy. health_crisis milestone."
+    },
+    {
+      "day": 4,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "milestones_triggered": [],
+      "notes": "Unhealthy day 2 (unchanged). No new action needed."
+    },
+    {
+      "day": 5,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "milestones_triggered": ["severe_episode"],
+      "notes": "Unhealthy day 3 — severe_episode milestone triggered (3+ consecutive unhealthy days)."
+    },
+    {
+      "day": 6,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling much better",
+      "milestones_triggered": ["full_recovery"],
+      "notes": "Returns to healthy. full_recovery milestone. Recovery template companion message."
+    }
+  ],
+  "milestone_summary": {
+    "total_milestones": 4,
+    "types": ["first_symptom", "health_crisis", "severe_episode", "full_recovery"],
+    "all_stored_in_db": true,
+    "none_in_frontend_payload": true
+  }
+}

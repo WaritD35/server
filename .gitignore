@@ -26,3 +26,12 @@ Thumbs.db
 
 # Logs / local artifacts
 *.log
+
+# AI agent skills
+.agents/
+.claude/
+.grok/
+.kiro/
+.qwen/
+agent/
+skills-lock.json

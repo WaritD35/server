@@ -1,0 +1,7 @@
+{
+  "scenario": "care_advice_message",
+  "decision": "CARE_ADVICE_REQUIRED",
+  "message": "Hey there, I need to tell you something... my lower leaves have been feeling a bit off lately — they're turning yellow and I'm not feeling as perky as usual. I think I might be getting a little too much water! Could you check if my soil is still wet before giving me another drink? And maybe snip off those yellowed leaves so I can focus my energy on growing new ones. I know we'll figure this out together! 🌿",
+  "source": "llm",
+  "notes": "LLM-generated first-person plant voice. Must reference care plan actions. Validated via fact preservation check (>=34% action coverage)."
+}

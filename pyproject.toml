@@ -23,6 +23,8 @@ dependencies = [
     "langfuse>=4.15.1",
     "langchain>=1.4.0",
     "langchain-openai>=1.6.0",
+    "pgvector>=0.3.0",
+    "langchain-ollama>=1.1.0",
 ]
 
 [dependency-groups]
@@ -43,6 +45,7 @@ package = false
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

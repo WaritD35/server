@@ -1,0 +1,35 @@
+{
+  "scenario": "health_status_change",
+  "description": "Health flips from healthy to possibly_unhealthy — triggers care advice",
+  "expected_decisions": ["NO_ACTION", "CARE_ADVICE_REQUIRED"],
+  "expected_llm_calls": 1,
+  "mock_advice_file": "responses/advice/overwatering_stress.json",
+  "steps": [
+    {
+      "day": 1,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling great",
+      "companion_source": "template",
+      "milestones_triggered": [],
+      "db_observation_saved": true,
+      "notes": "Healthy baseline."
+    },
+    {
+      "day": 2,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": {
+        "status_label": "Overwatering stress",
+        "assessment_contains": "overwatering",
+        "action_count": 3,
+        "action_types_include": ["water", "inspect", "move"]
+      },
+      "companion_message_not_empty": true,
+      "companion_message_references_actions": true,
+      "milestones_triggered": ["first_symptom"],
+      "db_observation_saved": true,
+      "db_care_plan_saved": true,
+      "notes": "Health status change triggers Event Engine. Care Advisor LLM generates plan with 3 actions."
+    }
+  ]
+}

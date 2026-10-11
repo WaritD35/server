@@ -1,0 +1,29 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Underwatering drought stress",
+  "assessment": "Monstera deliciosa is showing signs of chronic underwatering: dry, crispy brown leaf tips and edges, curling leaves, and lighter-than-normal coloring. The soil has pulled away from the pot edges indicating severe dehydration.",
+  "confidence": 0.91,
+  "actions": [
+    {
+      "id": "act_uwtr01",
+      "priority": 1,
+      "action": "Give the plant a thorough bottom-watering by placing the pot in a basin of room-temperature water for 20–30 minutes until soil is fully rehydrated.",
+      "label": "Deep soak",
+      "type": "water"
+    },
+    {
+      "id": "act_uwtr02",
+      "priority": 2,
+      "action": "Mist the leaves daily for the next week to increase local humidity and reduce transpiration stress while roots recover.",
+      "label": "Mist leaves",
+      "type": "water"
+    },
+    {
+      "id": "act_uwtr03",
+      "priority": 3,
+      "action": "Set a watering reminder for every 7–10 days. Check soil moisture before watering — the top inch should be dry but soil below should still feel slightly moist.",
+      "label": "Set schedule",
+      "type": "other"
+    }
+  ]
+}

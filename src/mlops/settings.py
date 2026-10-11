@@ -34,6 +34,8 @@ class Component(StrEnum):
     KNOWLEDGE = "knowledge"
     #: VLM — species identification, once per plant.
     REGISTRY = "registry"
+    #: LLM — 1st-person character companion dialogue projection.
+    COMPANION = "companion"
 
 
 #: The label a component reads in production. Promotion is moving this label in
@@ -80,6 +82,10 @@ def credentials_for(component: Component) -> LangfuseCredentials:
         Component.REGISTRY: (
             s.langfuse_registry_public_key,
             s.langfuse_registry_secret_key,
+        ),
+        Component.COMPANION: (
+            s.langfuse_companion_public_key,
+            s.langfuse_companion_secret_key,
         ),
     }
     public_key, secret_key = pairs[component]

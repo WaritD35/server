@@ -1,0 +1,22 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Early leaf yellowing",
+  "assessment": "Mild chlorotic yellowing detected on lower leaves of Monstera deliciosa. This is commonly associated with overwatering or natural senescence of older foliage. The upper canopy remains healthy, suggesting the issue is localized and early-stage.",
+  "confidence": 0.88,
+  "actions": [
+    {
+      "id": "act_y1mild01",
+      "priority": 1,
+      "action": "Check soil moisture 2 inches below surface before next watering — only water when top 2 inches are dry.",
+      "label": "Check moisture",
+      "type": "inspect"
+    },
+    {
+      "id": "act_y1mild02",
+      "priority": 2,
+      "action": "Remove the yellowed lower leaves with sterilized scissors to redirect energy to healthy growth.",
+      "label": "Trim yellowed leaves",
+      "type": "other"
+    }
+  ]
+}

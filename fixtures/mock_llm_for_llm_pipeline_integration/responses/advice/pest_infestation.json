@@ -1,0 +1,36 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Pest infestation detected",
+  "assessment": "Spider mite infestation detected on Monstera deliciosa. Fine webbing observed between leaf nodes, along with tiny stippling marks (white dots) on leaf surfaces where mites have been feeding. Several leaves show bronzing discoloration from sustained feeding damage.",
+  "confidence": 0.87,
+  "actions": [
+    {
+      "id": "act_pest01",
+      "priority": 1,
+      "action": "Rinse all leaves thoroughly with a strong stream of room-temperature water in the shower or with a hose, focusing on the undersides where mites congregate.",
+      "label": "Wash leaves",
+      "type": "water"
+    },
+    {
+      "id": "act_pest02",
+      "priority": 2,
+      "action": "Apply insecticidal soap or neem oil spray to all leaf surfaces (top and bottom) and stems. Repeat every 5 days for at least 3 treatments to break the mite lifecycle.",
+      "label": "Apply treatment",
+      "type": "other"
+    },
+    {
+      "id": "act_pest03",
+      "priority": 3,
+      "action": "Isolate the plant from others and inspect neighboring plants for signs of mite spread. Check leaf undersides with a magnifying glass.",
+      "label": "Isolate & check",
+      "type": "move"
+    },
+    {
+      "id": "act_pest04",
+      "priority": 4,
+      "action": "Increase humidity around the plant using a pebble tray or humidifier — spider mites thrive in dry conditions and high humidity suppresses their reproduction.",
+      "label": "Boost humidity",
+      "type": "other"
+    }
+  ]
+}

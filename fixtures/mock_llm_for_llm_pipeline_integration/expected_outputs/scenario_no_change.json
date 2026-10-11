@@ -1,0 +1,28 @@
+{
+  "scenario": "no_change",
+  "description": "Same health status (healthy) on consecutive days — no intervention needed",
+  "expected_decisions": ["NO_ACTION", "NO_ACTION"],
+  "expected_llm_calls": 0,
+  "steps": [
+    {
+      "day": 1,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling great",
+      "companion_source": "template",
+      "milestones_triggered": [],
+      "db_observation_saved": true,
+      "notes": "Healthy baseline saved. No LLM call."
+    },
+    {
+      "day": 2,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling great",
+      "companion_source": "template",
+      "milestones_triggered": [],
+      "db_observation_saved": true,
+      "notes": "Same healthy status, no change detected. 0 LLM calls total."
+    }
+  ]
+}

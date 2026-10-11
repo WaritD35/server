@@ -1,0 +1,39 @@
+{
+  "scenario": "new_symptom",
+  "description": "Day 1 healthy, Day 2 new symptom appears — triggers care advice",
+  "expected_decisions": ["NO_ACTION", "CARE_ADVICE_REQUIRED"],
+  "expected_llm_calls": 1,
+  "mock_advice_file": "responses/advice/leaf_yellowing_mild.json",
+  "steps": [
+    {
+      "day": 1,
+      "decision": "NO_ACTION",
+      "care_plan": null,
+      "companion_message_contains": "feeling great",
+      "companion_source": "template",
+      "milestones_triggered": [],
+      "db_observation_saved": true,
+      "notes": "Healthy baseline saved. No LLM call."
+    },
+    {
+      "day": 2,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": {
+        "status_label": "Early leaf yellowing",
+        "assessment_contains": "yellowing",
+        "action_count": 2,
+        "action_types": ["inspect", "other"],
+        "actions_have_ids": true,
+        "actions_have_labels": true,
+        "actions_sorted_by_priority": true
+      },
+      "companion_message_not_empty": true,
+      "companion_message_references_actions": true,
+      "companion_source": "llm_or_template_fallback",
+      "milestones_triggered": ["first_symptom"],
+      "db_observation_saved": true,
+      "db_care_plan_saved": true,
+      "notes": "LLM called once for care plan. Companion generates message referencing actions. first_symptom milestone created."
+    }
+  ]
+}

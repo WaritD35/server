@@ -1,0 +1,7 @@
+{
+  "scenario": "crisis_alert",
+  "decision": "CARE_ADVICE_REQUIRED",
+  "message": "I really need your help right now! 😟 I've been feeling worse and the dark spots on my leaves are spreading. Please isolate me from my plant friends so they don't catch what I have, and trim off the leaves that are looking bad. A little fungicide spray would really help me fight this off. I'm counting on you — let's beat this together! 💪🌱",
+  "source": "llm",
+  "notes": "LLM-generated first-person crisis voice. Higher urgency tone. Must reference isolation + treatment actions from care plan."
+}

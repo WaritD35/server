@@ -21,7 +21,7 @@ a record of where its frames came from, and frees the device for a new plant.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Text, Uuid, text
+from sqlalchemy import DateTime, Float, Index, Integer, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from registry.db import REGISTRY_SCHEMA, Base, utcnow
@@ -60,6 +60,12 @@ class Plant(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    level: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False, server_default=text("1")
+    )
+    xp_ratio: Mapped[float] = mapped_column(
+        Float, default=0.0, nullable=False, server_default=text("0.0")
     )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

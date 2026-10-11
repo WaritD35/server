@@ -1,0 +1,36 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Fungal infection suspected",
+  "assessment": "Dark brown to black spots with yellow halos observed on multiple leaves of Monstera deliciosa, consistent with fungal leaf spot disease (likely Phytophthora or Cercospora). The spots are expanding and some leaves show concentric ring patterns typical of fungal colonization.",
+  "confidence": 0.85,
+  "actions": [
+    {
+      "id": "act_fung01",
+      "priority": 1,
+      "action": "Immediately isolate this plant from all other houseplants to prevent spore transmission. Place at least 6 feet away from other plants.",
+      "label": "Isolate plant",
+      "type": "move"
+    },
+    {
+      "id": "act_fung02",
+      "priority": 2,
+      "action": "Remove all affected leaves by cutting at the petiole base with sterilized scissors. Dispose of cuttings in sealed bag — do not compost.",
+      "label": "Remove infected",
+      "type": "other"
+    },
+    {
+      "id": "act_fung03",
+      "priority": 3,
+      "action": "Apply a copper-based fungicide or neem oil solution to remaining foliage, covering both top and underside of leaves. Repeat every 7–10 days for 3 applications.",
+      "label": "Apply fungicide",
+      "type": "other"
+    },
+    {
+      "id": "act_fung04",
+      "priority": 4,
+      "action": "Reduce watering frequency and avoid wetting the leaves. Increase air circulation with a nearby fan to discourage fungal growth.",
+      "label": "Reduce water",
+      "type": "water"
+    }
+  ]
+}

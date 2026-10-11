@@ -1,0 +1,7 @@
+{
+  "scenario": "improvement_recovery",
+  "decision": "NO_ACTION",
+  "message": "I'm feeling much better today and bouncing back! Thanks for taking good care of me.",
+  "source": "template",
+  "notes": "Static template — 0 tokens. Triggered when previous status was unhealthy/possibly_unhealthy and current is improved."
+}

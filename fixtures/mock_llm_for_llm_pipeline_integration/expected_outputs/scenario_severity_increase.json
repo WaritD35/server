@@ -1,0 +1,43 @@
+{
+  "scenario": "severity_increase",
+  "description": "Same symptom type escalates from mild to severe — triggers care advice on day 2",
+  "expected_decisions": ["CARE_ADVICE_REQUIRED", "CARE_ADVICE_REQUIRED"],
+  "expected_llm_calls": 2,
+  "mock_advice_files": [
+    "responses/advice/leaf_yellowing_mild.json",
+    "responses/advice/leaf_yellowing_severe.json"
+  ],
+  "steps": [
+    {
+      "day": 1,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": {
+        "status_label": "Early leaf yellowing",
+        "assessment_contains": "mild",
+        "action_count": 2
+      },
+      "companion_message_not_empty": true,
+      "milestones_triggered": ["first_symptom"],
+      "db_observation_saved": true,
+      "db_care_plan_saved": true,
+      "notes": "possibly_unhealthy with mild symptoms triggers first advice. first_symptom milestone."
+    },
+    {
+      "day": 2,
+      "decision": "CARE_ADVICE_REQUIRED",
+      "care_plan": {
+        "status_label": "Severe chlorosis detected",
+        "assessment_contains": "necrotic",
+        "action_count": 4,
+        "action_types_include": ["inspect", "other", "move"],
+        "actions_sorted_by_priority": true
+      },
+      "companion_message_not_empty": true,
+      "companion_message_references_actions": true,
+      "milestones_triggered": ["health_crisis"],
+      "db_observation_saved": true,
+      "db_care_plan_saved": true,
+      "notes": "Severity escalation triggers health_crisis milestone. 4 urgent actions in care plan."
+    }
+  ]
+}

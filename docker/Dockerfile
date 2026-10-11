@@ -40,6 +40,9 @@ COPY --chown=app:app src ./src
 COPY --chown=app:app .env.example ./
 # Pipeline schedule / failure policy read by orchestrator.config.
 COPY --chown=app:app config ./config
+# Alembic database migrations
+COPY --chown=app:app alembic ./alembic
+COPY --chown=app:app alembic.ini ./alembic.ini
 
 USER app
 

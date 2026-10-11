@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from core.db import get_session
@@ -80,6 +80,8 @@ def list_plants(
     owner_id: uuid.UUID | None = None,
     species_code: str | None = None,
     include_archived: bool = False,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Sequence[Plant]:
     if not user.is_superuser:
         owner_id = user.id
@@ -88,6 +90,8 @@ def list_plants(
         owner_id=owner_id,
         species_code=species_code,
         include_archived=include_archived,
+        limit=limit,
+        offset=offset,
     )
 
 

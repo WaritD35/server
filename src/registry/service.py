@@ -125,6 +125,8 @@ def list_plants(
     owner_id: uuid.UUID | None = None,
     species_code: str | None = None,
     include_archived: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> Sequence[Plant]:
     """Plants, oldest first; live ones only unless ``include_archived``."""
     stmt = select(Plant).order_by(Plant.created_at, Plant.id)
@@ -134,6 +136,10 @@ def list_plants(
         stmt = stmt.where(Plant.species_code == species_code)
     if not include_archived:
         stmt = stmt.where(Plant.archived_at.is_(None))
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return session.scalars(stmt).all()
 
 

@@ -1,0 +1,48 @@
+{
+  "scenario": "severity_increase",
+  "description": "Same symptom type, severity escalates from mild to severe (expected: CARE_ADVICE_REQUIRED)",
+  "observations": [
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "health_status": "possibly_unhealthy",
+      "consensus": {
+        "agreement": 0.90,
+        "runs": 5,
+        "model_stated_average": 0.88
+      },
+      "observations": [
+        {
+          "type": "leaf_yellowing",
+          "severity": "mild",
+          "description": "dark green with slight yellow tips"
+        }
+      ],
+      "image_refs": [
+        "file:///images/monstera_day1.jpg"
+      ]
+    },
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-02T10:00:00Z",
+      "health_status": "unhealthy",
+      "consensus": {
+        "agreement": 1.0,
+        "runs": 5,
+        "model_stated_average": 0.91
+      },
+      "observations": [
+        {
+          "type": "leaf_yellowing",
+          "severity": "severe",
+          "description": "severe chlorosis and brown necrotic margins"
+        }
+      ],
+      "image_refs": [
+        "file:///images/monstera_day2.jpg"
+      ]
+    }
+  ]
+}

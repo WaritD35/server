@@ -1,0 +1,29 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Overwatering stress",
+  "assessment": "Signs of overwatering stress detected in Monstera deliciosa: soft, droopy leaves with slight yellowing at tips. Soil appears consistently saturated. The plant is not yet showing root rot but is at risk if watering frequency is not adjusted.",
+  "confidence": 0.90,
+  "actions": [
+    {
+      "id": "act_owtr01",
+      "priority": 1,
+      "action": "Allow soil to dry out completely before next watering. Insert a chopstick or moisture meter 3 inches deep to confirm dryness.",
+      "label": "Pause water",
+      "type": "water"
+    },
+    {
+      "id": "act_owtr02",
+      "priority": 2,
+      "action": "Ensure the pot has adequate drainage holes. Remove any saucer that traps standing water beneath the pot.",
+      "label": "Fix drainage",
+      "type": "inspect"
+    },
+    {
+      "id": "act_owtr03",
+      "priority": 3,
+      "action": "Increase air circulation around the plant by opening a nearby window or using a gentle fan to help the soil dry faster.",
+      "label": "Improve airflow",
+      "type": "move"
+    }
+  ]
+}

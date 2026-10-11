@@ -1,0 +1,1148 @@
+{
+  "info": {
+    "_postman_id": "c1f78e24-42b9-4a92-8a9d-b8478491d901",
+    "name": "Pet-Plant Companion State API Test Suite",
+    "description": "Comprehensive Postman test collection for the Pet-Plant server, validating all 8 delivery modes, auth flows, error envelopes, and companion state scenarios for `GET /companion/devices/me/state`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "userPassword",
+      "value": "Password123!",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceSerial",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "plantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "unboundDeviceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "testerEmail",
+      "value": "postman_tester@example.com",
+      "type": "string"
+    },
+    {
+      "key": "testerPassword",
+      "value": "Password123!",
+      "type": "string"
+    },
+    {
+      "key": "testerToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "steadyPlantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "steadyDeviceToken",
+      "value": "ppd_steady_device_token_secret_123",
+      "type": "string"
+    },
+    {
+      "key": "carePlantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "careDeviceToken",
+      "value": "ppd_care_device_token_secret_456",
+      "type": "string"
+    },
+    {
+      "key": "retakePlantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "retakeDeviceToken",
+      "value": "ppd_retake_device_token_secret_789",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Prerequisite Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Server is alive (status 200)\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Seed & Auth Setup",
+      "item": [
+        {
+          "name": "1.1 Register User",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const rand = Math.floor(Math.random() * 100000);",
+                  "const email = 'user_' + rand + '@example.com';",
+                  "pm.collectionVariables.set('userEmail', email);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"name\": \"Test User\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "1.2 Login User (Get JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Access token exists\", function () {",
+                  "    pm.expect(res.access_token).to.be.a('string');",
+                  "});",
+                  "pm.collectionVariables.set('userToken', res.access_token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{userEmail}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{userPassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "token"]
+            }
+          }
+        },
+        {
+          "name": "1.3 Start Device Pairing",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const rand = Math.floor(Math.random() * 100000);",
+                  "const serial = 'edge_device_' + rand;",
+                  "pm.collectionVariables.set('deviceSerial', serial);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.collectionVariables.set('deviceCode', res.device_code);",
+                  "pm.collectionVariables.set('userCode', res.user_code);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"physical_id\": \"{{deviceSerial}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/pair",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "pair"]
+            }
+          }
+        },
+        {
+          "name": "1.4 Approve Device Pairing (User)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_code\": \"{{userCode}}\",\n  \"name\": \"Living Room Planter\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/pair/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "pair", "approve"]
+            }
+          }
+        },
+        {
+          "name": "1.5 Exchange Code for Device Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Device token starts with ppd_\", function () {",
+                  "    pm.expect(res.access_token).to.match(/^ppd_/);",
+                  "});",
+                  "pm.collectionVariables.set('deviceToken', res.access_token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_code\": \"{{deviceCode}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/pair/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "pair", "token"]
+            }
+          }
+        },
+        {
+          "name": "1.6 Register Plant (Bound to Device)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.collectionVariables.set('plantId', res.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Monty\",\n  \"species_code\": \"spath\",\n  \"device_id\": \"{{deviceSerial}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/registry/plants",
+              "host": ["{{baseUrl}}"],
+              "path": ["registry", "plants"]
+            }
+          }
+        },
+        {
+          "name": "1.7 Setup Unbound Device (for Scenario 7)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.collectionVariables.set('unboundDeviceCode', res.device_code);",
+                  "pm.collectionVariables.set('unboundUserCode', res.user_code);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"physical_id\": \"unbound_hardware_999\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/devices/pair",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "pair"]
+            }
+          }
+        },
+        {
+          "name": "1.8 Approve & Get Unbound Device Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const approveReq = {",
+                  "    url: pm.collectionVariables.get('baseUrl') + '/devices/pair/approve',",
+                  "    method: 'POST',",
+                  "    header: {",
+                  "        'Authorization': 'Bearer ' + pm.collectionVariables.get('userToken'),",
+                  "        'Content-Type': 'application/json'",
+                  "    },",
+                  "    body: {",
+                  "        mode: 'raw',",
+                  "        raw: JSON.stringify({ user_code: pm.collectionVariables.get('unboundUserCode') })",
+                  "    }",
+                  "};",
+                  "pm.sendRequest(approveReq, function (err, res) {",
+                  "    const tokenReq = {",
+                  "        url: pm.collectionVariables.get('baseUrl') + '/devices/pair/token',",
+                  "        method: 'POST',",
+                  "        header: { 'Content-Type': 'application/json' },",
+                  "        body: {",
+                  "            mode: 'raw',",
+                  "            raw: JSON.stringify({ device_code: pm.collectionVariables.get('unboundDeviceCode') })",
+                  "        }",
+                  "    };",
+                  "    pm.sendRequest(tokenReq, function (tErr, tRes) {",
+                  "        pm.collectionVariables.set('unboundDeviceToken', tRes.json().access_token);",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Companion State Scenarios",
+      "item": [
+        {
+          "name": "Scenario 1: Unauthenticated (Expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"BaseResponse envelope format for error\", function () {",
+                  "    pm.expect(res.success).to.be.false;",
+                  "    pm.expect(res.data).to.be.null;",
+                  "    pm.expect(res.error.code).to.eql('UNAUTHORIZED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "Scenario 2: Invalid Bearer Token (Expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error code is UNAUTHORIZED\", function () {",
+                  "    pm.expect(res.success).to.be.false;",
+                  "    pm.expect(res.error.code).to.eql('UNAUTHORIZED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer totally_bogus_token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "Scenario 3: User JWT Missing plant_id (Expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error code is PLANT_ID_REQUIRED\", function () {",
+                  "    pm.expect(res.success).to.be.false;",
+                  "    pm.expect(res.error.code).to.eql('PLANT_ID_REQUIRED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "Scenario 4: User JWT Non-existent plant_id (Expect 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error code is PLANT_NOT_FOUND\", function () {",
+                  "    pm.expect(res.success).to.be.false;",
+                  "    pm.expect(res.error.code).to.eql('PLANT_NOT_FOUND');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state?plant_id=00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"],
+              "query": [
+                {
+                  "key": "plant_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Scenario 5: User JWT Happy Path (Expect 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Envelope success is true and error is null\", function () {",
+                  "    pm.expect(res.success).to.be.true;",
+                  "    pm.expect(res.error).to.be.null;",
+                  "});",
+                  "pm.test(\"CompanionStateData schema validation\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data).to.be.an('object');",
+                  "    pm.expect(data.plant_id).to.eql(pm.collectionVariables.get('plantId'));",
+                  "    pm.expect(data.name).to.eql('Monty');",
+                  "    pm.expect(data.dayCount).to.be.at.least(1);",
+                  "    pm.expect(data.level).to.be.at.least(1);",
+                  "    pm.expect(data.xpRatio).to.be.within(0.0, 1.0);",
+                  "    pm.expect(['healthy', 'possibly_unhealthy', 'unhealthy']).to.include(data.health_status);",
+                  "    pm.expect(['NO_ACTION', 'CARE_ADVICE_REQUIRED', 'REQUEST_MORE_INFORMATION']).to.include(data.decision);",
+                  "    pm.expect(data.companion_message).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state?plant_id={{plantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"],
+              "query": [
+                {
+                  "key": "plant_id",
+                  "value": "{{plantId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Scenario 6: Edge Device Token Happy Path (Expect 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Device resolves plant automatically without plant_id param\", function () {",
+                  "    pm.expect(res.success).to.be.true;",
+                  "    pm.expect(res.data.plant_id).to.eql(pm.collectionVariables.get('plantId'));",
+                  "    pm.expect(res.data.name).to.eql('Monty');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{deviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "Scenario 7: Unbound Device Token (Expect 404 DEVICE_NOT_BOUND)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Error code is DEVICE_NOT_BOUND\", function () {",
+                  "    pm.expect(res.success).to.be.false;",
+                  "    pm.expect(res.error.code).to.eql('DEVICE_NOT_BOUND');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{unboundDeviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "Scenario 8: Swagger OpenAPI Schema Verification (Expect 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const spec = pm.response.json();",
+                  "pm.test(\"Companion tag registered in OpenAPI\", function () {",
+                  "    const tagNames = spec.tags.map(t => t.name);",
+                  "    pm.expect(tagNames).to.include('Companion');",
+                  "});",
+                  "pm.test(\"Endpoint documented with all status codes\", function () {",
+                  "    const ep = spec.paths['/companion/devices/me/state'].get;",
+                  "    pm.expect(ep.summary).to.eql('Get current companion device state');",
+                  "    pm.expect(ep.responses).to.have.property('200');",
+                  "    pm.expect(ep.responses).to.have.property('400');",
+                  "    pm.expect(ep.responses).to.have.property('401');",
+                  "    pm.expect(ep.responses).to.have.property('403');",
+                  "    pm.expect(ep.responses).to.have.property('404');",
+                  "    pm.expect(ep.responses).to.have.property('500');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/openapi.json",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi.json"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. LLM Pipeline Response Scenarios",
+      "item": [
+        {
+          "name": "3.0 Tester Login (Get Tester JWT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Access token exists for seeded tester\", function () {",
+                  "    pm.expect(res.access_token).to.be.a('string');",
+                  "});",
+                  "pm.collectionVariables.set('testerToken', res.access_token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{testerEmail}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{testerPassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "token"]
+            }
+          }
+        },
+        {
+          "name": "3.1 Discover Seeded Plants",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const plants = pm.response.json();",
+                  "pm.test(\"User has seeded plants\", function () {",
+                  "    pm.expect(plants).to.be.an('array');",
+                  "    pm.expect(plants.length).to.be.at.least(3);",
+                  "});",
+                  "plants.forEach(p => {",
+                  "    if (p.name.indexOf('Steady') !== -1) {",
+                  "        pm.collectionVariables.set('steadyPlantId', p.id);",
+                  "    } else if (p.name.indexOf('Stressed') !== -1) {",
+                  "        pm.collectionVariables.set('carePlantId', p.id);",
+                  "    } else if (p.name.indexOf('Blurry') !== -1) {",
+                  "        pm.collectionVariables.set('retakePlantId', p.id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/registry/plants",
+              "host": ["{{baseUrl}}"],
+              "path": ["registry", "plants"]
+            }
+          }
+        },
+        {
+          "name": "3.2 LLM Scenario 1: Steady State (User Token - NO_ACTION)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Success envelope true\", function () {",
+                  "    pm.expect(res.success).to.be.true;",
+                  "    pm.expect(res.error).to.be.null;",
+                  "});",
+                  "pm.test(\"Decision is NO_ACTION and plant is healthy\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('NO_ACTION');",
+                  "    pm.expect(data.health_status).to.eql('healthy');",
+                  "    pm.expect(data.care_plan).to.be.null;",
+                  "    pm.expect(data.companion_message).to.be.a('string');",
+                  "    pm.expect(data.companion_message.length).to.be.above(0);",
+                  "    pm.expect(data.level).to.eql(3);",
+                  "    pm.expect(data.xpRatio).to.eql(0.85);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state?plant_id={{steadyPlantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"],
+              "query": [
+                {
+                  "key": "plant_id",
+                  "value": "{{steadyPlantId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3.3 LLM Scenario 1: Steady State (Edge Device Token - NO_ACTION)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Device token resolves steady plant automatically\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('NO_ACTION');",
+                  "    pm.expect(data.health_status).to.eql('healthy');",
+                  "    pm.expect(data.care_plan).to.be.null;",
+                  "    pm.expect(data.name).to.include('Steady');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{steadyDeviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "3.4 LLM Scenario 2: Care Advice & Plan (User Token - CARE_ADVICE_REQUIRED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Decision is CARE_ADVICE_REQUIRED with diagnosis and plan\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('CARE_ADVICE_REQUIRED');",
+                  "    pm.expect(data.health_status).to.eql('possibly_unhealthy');",
+                  "    pm.expect(data.care_plan).to.not.be.null;",
+                  "    pm.expect(data.care_plan.care_plan_id).to.eql('cp_basil_overwater_001');",
+                  "    pm.expect(data.care_plan.status_label).to.eql('Overwatering Stress');",
+                  "    pm.expect(data.care_plan.actions).to.be.an('array').with.lengthOf(2);",
+                  "    ",
+                  "    const action1 = data.care_plan.actions[0];",
+                  "    pm.expect(action1.action_id).to.eql('act_pause_water');",
+                  "    pm.expect(action1.priority).to.eql(1);",
+                  "    pm.expect(action1.label).to.eql('Pause water');",
+                  "    pm.expect(action1.action_type).to.eql('water');",
+                  "    ",
+                  "    pm.expect(data.last_watered_at).to.not.be.null;",
+                  "    pm.expect(data.companion_message).to.include('roots feel waterlogged');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state?plant_id={{carePlantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"],
+              "query": [
+                {
+                  "key": "plant_id",
+                  "value": "{{carePlantId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3.5 LLM Scenario 2: Care Advice & Plan (Edge Device Token - CARE_ADVICE_REQUIRED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Device token resolves care plan and actions\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('CARE_ADVICE_REQUIRED');",
+                  "    pm.expect(data.care_plan).to.not.be.null;",
+                  "    pm.expect(data.care_plan.actions.length).to.eql(2);",
+                  "    pm.expect(data.name).to.include('Stressed');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{careDeviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        },
+        {
+          "name": "3.6 LLM Scenario 3: Photo Retake (User Token - REQUEST_MORE_INFORMATION)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Decision is REQUEST_MORE_INFORMATION with photo retake prompt\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('REQUEST_MORE_INFORMATION');",
+                  "    pm.expect(data.care_plan).to.be.null;",
+                  "    pm.expect(data.companion_message).to.match(/blurry|dim|lighting|snap/i);",
+                  "    pm.expect(data.level).to.eql(2);",
+                  "    pm.expect(data.xpRatio).to.eql(0.50);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state?plant_id={{retakePlantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"],
+              "query": [
+                {
+                  "key": "plant_id",
+                  "value": "{{retakePlantId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3.7 LLM Scenario 3: Photo Retake (Edge Device Token - REQUEST_MORE_INFORMATION)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const res = pm.response.json();",
+                  "pm.test(\"Device token resolves photo retake decision\", function () {",
+                  "    const data = res.data;",
+                  "    pm.expect(data.decision).to.eql('REQUEST_MORE_INFORMATION');",
+                  "    pm.expect(data.care_plan).to.be.null;",
+                  "    pm.expect(data.name).to.include('Blurry');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{retakeDeviceToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/companion/devices/me/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["companion", "devices", "me", "state"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

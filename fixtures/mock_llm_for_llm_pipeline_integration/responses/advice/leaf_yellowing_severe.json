@@ -1,0 +1,36 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Severe chlorosis detected",
+  "assessment": "Severe chlorotic yellowing with brown necrotic margins observed across multiple leaves of Monstera deliciosa. Pattern suggests prolonged overwatering leading to root oxygen deprivation. Immediate intervention required to prevent root rot progression.",
+  "confidence": 0.92,
+  "actions": [
+    {
+      "id": "act_y1sev01",
+      "priority": 1,
+      "action": "Carefully remove the plant from its pot and inspect the root ball for dark, mushy, or foul-smelling roots indicating rot.",
+      "label": "Inspect roots",
+      "type": "inspect"
+    },
+    {
+      "id": "act_y1sev02",
+      "priority": 2,
+      "action": "Trim all blackened or mushy roots with sterilized shears. Healthy roots should be white or light tan and firm.",
+      "label": "Trim bad roots",
+      "type": "other"
+    },
+    {
+      "id": "act_y1sev03",
+      "priority": 3,
+      "action": "Repot in fresh, well-draining aroid mix (orchid bark, perlite, coco coir) and pause watering for 5–7 days to let roots recover.",
+      "label": "Repot plant",
+      "type": "other"
+    },
+    {
+      "id": "act_y1sev04",
+      "priority": 4,
+      "action": "Move to bright indirect light and monitor daily for 2 weeks. Resume watering only when top 2 inches of soil are completely dry.",
+      "label": "Adjust light",
+      "type": "move"
+    }
+  ]
+}

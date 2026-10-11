@@ -28,7 +28,7 @@ if engine.dialect.name != "postgresql":
     # default schema so the schema-qualified models run unchanged.
     engine = engine.execution_options(schema_translate_map={AUTH_SCHEMA: None})
 
-SessionLocal = sessionmaker(
+session_factory = SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
     autocommit=False,

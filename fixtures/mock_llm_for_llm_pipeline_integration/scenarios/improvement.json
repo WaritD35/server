@@ -1,0 +1,48 @@
+{
+  "scenario": "improvement",
+  "description": "A known symptom's severity decreases / resolves, nothing new appears (expected: NO_ACTION)",
+  "observations": [
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "health_status": "unhealthy",
+      "consensus": {
+        "agreement": 1.0,
+        "runs": 5,
+        "model_stated_average": 0.92
+      },
+      "observations": [
+        {
+          "type": "leaf_yellowing",
+          "severity": "severe",
+          "description": "chlorotic yellowing on lower leaves"
+        }
+      ],
+      "image_refs": [
+        "file:///images/monstera_day1.jpg"
+      ]
+    },
+    {
+      "plant_id": "plant-monstera-1",
+      "species": "Monstera deliciosa",
+      "timestamp": "2026-09-02T10:00:00Z",
+      "health_status": "possibly_unhealthy",
+      "consensus": {
+        "agreement": 0.95,
+        "runs": 5,
+        "model_stated_average": 0.91
+      },
+      "observations": [
+        {
+          "type": "leaf_yellowing",
+          "severity": "mild",
+          "description": "greening returning, mild yellowing remaining"
+        }
+      ],
+      "image_refs": [
+        "file:///images/monstera_day2.jpg"
+      ]
+    }
+  ]
+}

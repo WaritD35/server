@@ -57,6 +57,7 @@ def test_metadata_covers_every_table() -> None:
         "probe",
         "probe_action",
         "probe_exemplar",
+        "knowledge_chunks",
     }
 
 

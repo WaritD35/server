@@ -1,0 +1,36 @@
+{
+  "plant_id": "plant-monstera-1",
+  "status_label": "Multiple issues detected",
+  "assessment": "Monstera deliciosa is showing a combination of issues: yellowing lower leaves suggesting overwatering, brown dry tips indicating low humidity, and minor pest webbing on leaf undersides. This multi-symptom presentation requires a staged intervention addressing each concern in priority order.",
+  "confidence": 0.82,
+  "actions": [
+    {
+      "id": "act_multi01",
+      "priority": 1,
+      "action": "Address the pest issue first: rinse all leaves with water and apply neem oil to both leaf surfaces. Repeat every 5 days for 3 treatments.",
+      "label": "Treat pests",
+      "type": "other"
+    },
+    {
+      "id": "act_multi02",
+      "priority": 2,
+      "action": "Reduce watering frequency — let top 2 inches of soil dry between waterings. Check with a moisture meter before each watering session.",
+      "label": "Fix watering",
+      "type": "water"
+    },
+    {
+      "id": "act_multi03",
+      "priority": 3,
+      "action": "Increase ambient humidity to 50–60% using a pebble tray beneath the pot or a nearby humidifier to address the brown dry tips.",
+      "label": "Raise humidity",
+      "type": "other"
+    },
+    {
+      "id": "act_multi04",
+      "priority": 4,
+      "action": "Remove yellowed and damaged leaves with sterilized scissors. Monitor new growth over the next 2 weeks for improvement.",
+      "label": "Prune & monitor",
+      "type": "inspect"
+    }
+  ]
+}

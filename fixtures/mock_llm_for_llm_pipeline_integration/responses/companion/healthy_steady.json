@@ -1,0 +1,7 @@
+{
+  "scenario": "healthy_steady",
+  "decision": "NO_ACTION",
+  "message": "I'm feeling great and thriving today! Leaves are happy and soaking up the room. Thanks for checking in on me!",
+  "source": "template",
+  "notes": "Static template — 0 tokens, <1ms. Used for NO_ACTION when plant is healthy/steady."
+}
