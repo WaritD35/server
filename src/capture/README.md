@@ -30,10 +30,22 @@ capture agent lives in the edge repository.)
 
 - Capture-batch uploads, routed in by `orchestrator`.
 - Plant identity / anchor from `registry`.
+- Until edge uploads land: a server-side webcam. `capture.service.capture_for_plant`
+  maps the plant's `device_id` to a webcam index through `CAPTURE_WEBCAM_MAP`
+  (`"device-abc=0,device-def=1"`; empty, the default, disables capture), grabs one
+  frame in memory, quality-checks it and, if it passes, crops the plant
+  (`whole_plant`) and records the previous frame it is aligned to. Raises
+  `CaptureUnavailable` (no device / unmapped), `CaptureBusy` (that webcam is in
+  use) or `CaptureDeviceError` (webcam or MinIO failure). Nothing is written to
+  local disk; object keys are `{plant_id}/{yyyy}/{mm}/{dd}/{capture_id}.jpg`
+  (raw) and `{plant_id}/{yyyy}/{mm}/{dd}/{frame_id}_{crop_type}.jpg` (processed).
 
 ## Outputs
 
 - **Extracted features** (segmented, aligned frames + crop manifest) → `assessment`.
+- Published interface (`capture.interface`): `get_frame_pair(session, plant_id, run_id=None)`
+  → `FramePair | None` (that run's frame and the one before it, or the latest two)
+  and `read_frame(frame)` → JPEG bytes.
 
 ## Driven by
 
@@ -41,9 +53,12 @@ capture agent lives in the edge repository.)
 
 ## HTTP surface
 
-This context owns `src/capture/api.py` exposing `router: APIRouter`, plus its own
-request/response schemas (organised however the owner prefers). `main_web` mounts
-the router; routes apply the auth dependencies provided by `core`.
+`src/capture/api.py` exposes `router` (prefix `/capture`, superuser only), mounted
+by `main_web`:
+
+- `POST /capture/plants/{plant_id}/run` — one capture outside the schedule
+  (404 plant, 409 unavailable/busy, 503 webcam or MinIO failure).
+- `GET /capture/plants/{plant_id}/frames?limit=` — recent processed frames.
 
 ## Internal design
 
