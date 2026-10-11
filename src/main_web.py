@@ -24,6 +24,7 @@ from api.controller import router as companion_router
 from api.exception import ApiException
 from api.model import BaseResponse
 from assessment.db import init_models as init_assessment_models
+from capture.db import init_models as init_capture_models
 from companion.db import init_models as init_companion_models
 from core.api import router as health_router
 from core.db import SessionLocal, init_models
@@ -47,6 +48,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     init_knowledge_models()
     init_registry_models()
     init_orchestrator_models()
+    init_capture_models()
     init_action_models()
     init_assessment_models()
     init_advice_models()
