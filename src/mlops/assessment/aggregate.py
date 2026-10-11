@@ -63,10 +63,7 @@ class RunDecision:
 
     health_status: str
     observations: list[dict[str, str]]
-    image_1_stress_level: str | None
-    image_2_stress_level: str | None
     model_confidence: float | None
-    raw_observation: dict[str, Any]
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -135,7 +132,6 @@ def observation_stress_level(observation: dict[str, Any], key: str) -> str | Non
 def derive_run_decision(observation: dict[str, Any]) -> RunDecision:
     """Derive health status and current observations from one VLM run."""
 
-    image_1_stress = observation_stress_level(observation, "image_1_observation")
     image_2_stress = observation_stress_level(observation, "image_2_observation")
     image_2_score = stress_score(image_2_stress)
 
@@ -151,10 +147,7 @@ def derive_run_decision(observation: dict[str, Any]) -> RunDecision:
     return RunDecision(
         health_status=health_status,
         observations=clean_current_observations(observation, image_2_stress),
-        image_1_stress_level=image_1_stress,
-        image_2_stress_level=image_2_stress,
         model_confidence=clamp_model_confidence(observation.get("model_confidence")),
-        raw_observation=observation,
     )
 
 
