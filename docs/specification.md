@@ -215,7 +215,8 @@
 ### 3.1 `assessment.interface`
 - `get_trigger_result(session: Session, run_id: UUID) -> TriggerResult | None`
 - `get_recent_observations(session: Session, plant_id: UUID, n: int = 7) -> list[ObservationRead]` (Tier 1 Memory)
-- `get_previous_observation(session: Session, plant_id: UUID) -> ObservationRead | None`
+- `get_observation_by_run(session: Session, run_id: UUID) -> ObservationRead | None`
+- `get_previous_observation(session: Session, plant_id: UUID, excluding_run_id: UUID | None = None) -> ObservationRead | None` — latest observation; `excluding_run_id` skips that run so companion does not treat the row just stored as the previous one
 - `get_milestones(session: Session, plant_id: UUID) -> list[MilestoneRead]` (Tier 2 Episodic Memory)
 - `update_companion_message(session: Session, run_id: UUID, message: str) -> None`
 
@@ -311,7 +312,7 @@ The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` a
 | Assessment Service | `tests/assessment/test_assessment_service.py` | 1 | PASSED |
 | Assessment Milestones | `tests/assessment/test_milestones.py` | 4 | PASSED |
 | Assessment Rules (Deterministic) | `tests/assessment/test_rules.py` | 9 | PASSED |
-| Assessment Frames + Debug API | `tests/assessment/test_assess_frames.py`, `tests/assessment/test_assessment_api.py` | 17 | PASSED |
+| Assessment Frames + Debug API | `tests/assessment/test_assess_frames.py`, `tests/assessment/test_assessment_api.py` | 19 | PASSED |
 | Capture (models, service, interface, vision, API) | `tests/capture/` | 48 | PASSED |
 | Companion Service | `tests/companion/test_companion_service.py` | 6 | PASSED |
 | Companion Validator | `tests/companion/test_validator.py` | 3 | PASSED |
@@ -324,9 +325,9 @@ The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` a
 | MLOps Assessment Isolation | `tests/mlops/test_assessment_isolation.py` | 1 | PASSED |
 | MLOps LLM Factory (Ollama/OpenAI) | `tests/mlops/test_llm_factory.py` | 2 | PASSED |
 | Orchestrator API, Config, Worker | `tests/orchestrator/test_orchestrator_*.py` | 16 | PASSED |
-| Orchestrator E2E pipeline (3 branches + 2 skips) | `tests/orchestrator/test_pipeline_e2e.py` | 5 | PASSED |
+| Orchestrator E2E pipeline (3 branches + 2 skips + companion history + failed status) | `tests/orchestrator/test_pipeline_e2e.py` | 7 | PASSED |
 | Registry API & Interface | `tests/registry/` | 22 | PASSED |
-| **Total** | **All Tests** | **351** | **100% PASSED** |
+| **Total** | **All Tests** | **355** | **100% PASSED** |
 
 - **Ruff Code Style:** 0 errors across all source and test files.
 - **Mypy Static Typing:** Strict type-checking passed across 201 source files.

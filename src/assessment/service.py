@@ -369,11 +369,11 @@ def assess_frames(
     (the orchestrator passes the same id; the debug route passes ``None`` = the
     latest two frames). Does not run the rules engine.
 
-    Raises :class:`AssessmentSkipped` when the plant is unknown, has no
-    ``species_code``, or fewer than two processed frames exist.
+    Raises :class:`AssessmentSkipped` when the plant is unknown or archived, has
+    no ``species_code``, or fewer than two processed frames exist.
     """
     plant = get_plant(session, plant_id)
-    if plant is None:
+    if plant is None or not plant.is_active:
         raise AssessmentSkipped("plant not found")
     if plant.species_code is None:
         raise AssessmentSkipped("species not set")

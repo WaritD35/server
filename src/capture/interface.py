@@ -13,7 +13,10 @@ from sqlalchemy.orm import Session
 from capture import service
 from capture.models import ProcessedFrame
 from capture.schemas import FramePair, FrameRef, ProcessedFrameRead
+from capture.service import CaptureDeviceError
 from core.storage import bucket_names
+
+__all__ = ["CaptureDeviceError", "FramePair", "FrameRef", "get_frame_pair", "read_frame"]
 
 
 def _frame_ref(frame: ProcessedFrame, captured_at: datetime, bucket: str) -> FrameRef:

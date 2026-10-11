@@ -8,6 +8,7 @@ ones. The frame pair, the frame bytes and ``run_probe`` are swapped on
 
 import uuid
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 
 import pytest
 from assessment_fakes import FakeFrames, FakeProbe
@@ -60,9 +61,13 @@ def session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
 
 @pytest.fixture
 def add_plant(session_factory: sessionmaker[Session]) -> Callable[..., uuid.UUID]:
-    def _add(species_code: str | None = "spath") -> uuid.UUID:
+    def _add(species_code: str | None = "spath", *, archived: bool = False) -> uuid.UUID:
         plant = Plant(
-            id=uuid.uuid4(), owner_id=uuid.uuid4(), name="Spathi", species_code=species_code
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="Spathi",
+            species_code=species_code,
+            archived_at=datetime.now(UTC) if archived else None,
         )
         with session_factory() as s:
             s.add(plant)

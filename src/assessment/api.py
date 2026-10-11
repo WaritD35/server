@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from assessment import service
 from assessment.models import Observation
 from assessment.schemas import HealthStatus, ObservationRead
-from capture.service import CaptureDeviceError
+from capture.interface import CaptureDeviceError
 from core.db import get_session
 from core.users import CurrentSuperuser
 from mlops.assessment import AssessmentRunError, AssessmentUnavailableError
@@ -30,7 +30,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
     response_model=ObservationRead,
     summary="Assess a plant's latest two frames now, outside the schedule",
     description=(
-        "404 for an unknown plant; 409 when species is unset or fewer than two "
+        "404 for an unknown or archived plant; 409 when species is unset or fewer than two "
         "processed frames exist; 502 when most VLM runs are invalid; 503 when "
         "Langfuse, the prompt config, the VLM or object storage is unavailable. "
         "Does not run the rules engine. The stored observation counts in history."
@@ -39,7 +39,8 @@ SessionDep = Annotated[Session, Depends(get_session)]
 def run_assessment(
     plant_id: uuid.UUID, session: SessionDep, _user: CurrentSuperuser
 ) -> ObservationRead:
-    if get_plant(session, plant_id) is None:
+    plant = get_plant(session, plant_id)
+    if plant is None or not plant.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Plant not found")
     try:
         observation = service.assess_frames(

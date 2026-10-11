@@ -18,13 +18,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
-
 from advice.interface import get_care_plan
 from advice.service import generate_for_plant as generate_advice_for_plant
-from assessment.interface import get_previous_observation, get_trigger_result
-from assessment.models import Observation
-from assessment.schemas import HealthStatus, ObservationRead, TriggerDecision
+from assessment.interface import (
+    get_observation_by_run,
+    get_previous_observation,
+    get_trigger_result,
+)
+from assessment.schemas import TriggerDecision
 from assessment.service import AssessmentSkipped, assess_frames, evaluate_observation
 from capture.service import CaptureBusy, CaptureUnavailable, capture_for_plant
 from companion.service import generate_for_plant as generate_companion_message
@@ -77,11 +78,7 @@ def run_assessment(payload: StageInput) -> None:
         except AssessmentSkipped as err:
             logger.info("Assessment stage skipped: %s", err)
             raise StageSkipped(str(err)) from err
-        try:
-            evaluate_observation(session, payload.plant_id, payload.run_id)
-        except ValueError as err:
-            logger.info("Assessment stage skipped: %s", err)
-            raise StageSkipped(str(err)) from err
+        evaluate_observation(session, payload.plant_id, payload.run_id)
 
 
 def run_advice(payload: StageInput) -> None:
@@ -97,32 +94,10 @@ def run_companion(payload: StageInput) -> None:
         trig = get_trigger_result(session, payload.run_id)
         decision = trig.decision.value if trig else TriggerDecision.NO_ACTION.value
 
-        stmt = select(Observation).where(Observation.run_id == payload.run_id)
-        obs_row = session.scalars(stmt).first()
-        obs_read = (
-            ObservationRead(
-                id=obs_row.id,
-                plant_id=obs_row.plant_id,
-                run_id=obs_row.run_id,
-                timestamp=obs_row.timestamp,
-                health_status=HealthStatus(obs_row.health_status),
-                confidence=obs_row.confidence,
-                observations=(
-                    obs_row.observations_json
-                    if isinstance(obs_row.observations_json, list)
-                    else []
-                ),
-                consensus=obs_row.consensus_json,
-                image_refs=obs_row.image_refs_json,
-                description=obs_row.description,
-                companion_message=obs_row.companion_message,
-                created_at=obs_row.created_at,
-            )
-            if obs_row
-            else None
+        obs_read = get_observation_by_run(session, payload.run_id)
+        prev_read = get_previous_observation(
+            session, payload.plant_id, excluding_run_id=payload.run_id
         )
-
-        prev_read = get_previous_observation(session, payload.plant_id)
         care_plan = get_care_plan(session, payload.run_id)
         plant_meta = get_plant(session, payload.plant_id)
         nickname = plant_meta.name if plant_meta else "your plant"

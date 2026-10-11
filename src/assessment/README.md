@@ -54,7 +54,7 @@ mounted by `main_web`:
 
 - `POST /assessment/plants/{plant_id}/run` — assess the latest two processed
   frames (`frames_run_id=None`), write an observation with a fresh `run_id`.
-  No request body; does **not** run the rules engine. 404 plant, 409 skip,
+  No request body; does **not** run the rules engine. 404 unknown or archived plant, 409 skip,
   502 majority-invalid (`AssessmentRunError`), 503 Langfuse / prompt / VLM /
   MinIO (`AssessmentUnavailableError` or `CaptureDeviceError`).
 
@@ -63,7 +63,9 @@ mounted by `main_web`:
 **Tier 2.** Debug observations are real observations of the plant: they count
 in observation history (`get_previous_observation`, `count_observations` /
 `dayCount`) and become the "previous" observation for the next scheduled
-`evaluate_observation`. There is no exclusion logic; a test pins this.
+`evaluate_observation`. There is no exclusion from history; a test pins this.
+The companion stage passes `excluding_run_id` so that same row is not also
+the "previous" observation of the run that just wrote it.
 
 ## Internal design
 

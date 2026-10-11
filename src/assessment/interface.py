@@ -15,6 +15,23 @@ from assessment.schemas import (
 )
 
 
+def _observation_read(row: Observation) -> ObservationRead:
+    return ObservationRead(
+        id=row.id,
+        plant_id=row.plant_id,
+        run_id=row.run_id,
+        timestamp=row.timestamp,
+        health_status=HealthStatus(row.health_status),
+        confidence=row.confidence,
+        observations=row.observations_json if isinstance(row.observations_json, list) else [],
+        consensus=row.consensus_json,
+        image_refs=row.image_refs_json,
+        description=row.description,
+        companion_message=row.companion_message,
+        created_at=row.created_at,
+    )
+
+
 def get_trigger_result(session: Session, run_id: uuid.UUID) -> TriggerResult | None:
     """Retrieve the deterministic trigger verdict for an orchestrator run."""
     stmt = select(TriggerResultRecord).where(TriggerResultRecord.run_id == run_id)
@@ -44,53 +61,35 @@ def get_recent_observations(
     rows = list(session.scalars(stmt).all())
     # Return chronological order (oldest to newest)
     rows.reverse()
-    return [
-        ObservationRead(
-            id=r.id,
-            plant_id=r.plant_id,
-            run_id=r.run_id,
-            timestamp=r.timestamp,
-            health_status=HealthStatus(r.health_status),
-            confidence=r.confidence,
-            observations=r.observations_json if isinstance(r.observations_json, list) else [],
-            consensus=r.consensus_json,
-            image_refs=r.image_refs_json,
-            description=r.description,
-            companion_message=r.companion_message,
-            created_at=r.created_at,
-        )
-        for r in rows
-    ]
+    return [_observation_read(row) for row in rows]
+
+
+def get_observation_by_run(session: Session, run_id: uuid.UUID) -> ObservationRead | None:
+    """The observation stored for one orchestrator or debug run."""
+    row = session.scalars(select(Observation).where(Observation.run_id == run_id)).first()
+    if row is None:
+        return None
+    return _observation_read(row)
 
 
 def get_previous_observation(
     session: Session,
     plant_id: uuid.UUID,
+    excluding_run_id: uuid.UUID | None = None,
 ) -> ObservationRead | None:
-    """Retrieve the most recent observation prior to current run."""
-    stmt = (
-        select(Observation)
-        .where(Observation.plant_id == plant_id)
-        .order_by(Observation.timestamp.desc())
-        .limit(1)
-    )
-    r = session.scalars(stmt).first()
-    if not r:
+    """The latest observation for ``plant_id``.
+
+    Pass ``excluding_run_id`` to skip that run. The companion stage does this
+    so the observation just stored is not reported as the previous one. Callers
+    that want the latest row, including a debug observation, omit it.
+    """
+    stmt = select(Observation).where(Observation.plant_id == plant_id)
+    if excluding_run_id is not None:
+        stmt = stmt.where(Observation.run_id != excluding_run_id)
+    row = session.scalars(stmt.order_by(Observation.timestamp.desc()).limit(1)).first()
+    if row is None:
         return None
-    return ObservationRead(
-        id=r.id,
-        plant_id=r.plant_id,
-        run_id=r.run_id,
-        timestamp=r.timestamp,
-        health_status=HealthStatus(r.health_status),
-        confidence=r.confidence,
-        observations=r.observations_json if isinstance(r.observations_json, list) else [],
-        consensus=r.consensus_json,
-        image_refs=r.image_refs_json,
-        description=r.description,
-        companion_message=r.companion_message,
-        created_at=r.created_at,
-    )
+    return _observation_read(row)
 
 
 def get_milestones(

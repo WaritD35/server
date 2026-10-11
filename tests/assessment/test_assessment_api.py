@@ -98,6 +98,21 @@ def test_each_run_gets_a_fresh_run_id(
 
 def test_unknown_plant_is_404(client_as: ClientAs, admin: User, probe: FakeProbe) -> None:
     assert _run(client_as(admin), uuid.uuid4())[0] == 404
+    assert probe.calls == []
+
+
+def test_archived_plant_is_404(
+    client_as: ClientAs,
+    admin: User,
+    add_plant: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    plant_id = add_plant(archived=True)
+    frames.add_pair(plant_id)
+
+    assert _run(client_as(admin), plant_id)[0] == 404
+    assert probe.calls == []
     assert _run(client_as(admin), "not-a-uuid")[0] == 422
     assert probe.calls == []
 
@@ -199,6 +214,12 @@ def test_a_debug_observation_is_history_for_the_next_scheduled_evaluation(
 
     previous = get_previous_observation(session, ready_plant)
     assert previous is not None and str(previous.id) == debug["id"]
+    assert (
+        get_previous_observation(
+            session, ready_plant, excluding_run_id=uuid.UUID(debug["run_id"])
+        )
+        is None
+    )
     assert count_observations(session, ready_plant) == 1
 
     scheduled_run = uuid.uuid4()
@@ -214,6 +235,9 @@ def test_a_debug_observation_is_history_for_the_next_scheduled_evaluation(
         )
     )
     session.commit()
+
+    prior = get_previous_observation(session, ready_plant, excluding_run_id=scheduled_run)
+    assert prior is not None and str(prior.id) == debug["id"]
 
     record = evaluate_observation(session, ready_plant, scheduled_run)
 

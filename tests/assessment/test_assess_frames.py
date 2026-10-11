@@ -36,6 +36,22 @@ def test_a_plant_without_species_is_skipped(
     assert _observations(session) == []
 
 
+def test_an_archived_plant_is_skipped(
+    session: Session,
+    add_plant: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    plant_id = add_plant(archived=True)
+    frames.add_pair(plant_id)
+
+    with pytest.raises(AssessmentSkipped, match="plant not found"):
+        assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    assert probe.calls == []
+    assert _observations(session) == []
+
+
 def test_an_unknown_plant_is_skipped(
     session: Session, frames: FakeFrames, probe: FakeProbe
 ) -> None:

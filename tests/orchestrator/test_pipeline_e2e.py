@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -185,6 +185,82 @@ def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Ses
         stored = session.scalars(select(Observation).where(Observation.run_id == run_id)).one()
         assert stored.plant_id == plant_id
         assert stored.health_status == HealthStatus.HEALTHY.value
+
+
+def test_companion_previous_observation_excludes_this_run(
+    e2e_session_factory: sessionmaker[Session],
+):
+    """The observation just stored is current, not the previous one."""
+    with e2e_session_factory() as session:
+        plant_id, run_id = _add_plant_and_run(session, name="Pothos", species_code="epipremnum")
+        older_run = uuid.uuid4()
+        now = datetime.now(UTC)
+        session.add(
+            Observation(
+                plant_id=plant_id,
+                run_id=older_run,
+                timestamp=now - timedelta(hours=1),
+                health_status=HealthStatus.HEALTHY.value,
+                confidence=1.0,
+                observations_json=[],
+                consensus_json={},
+                image_refs_json=[],
+                created_at=now - timedelta(hours=1),
+            )
+        )
+        session.commit()
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+        seen: dict[str, uuid.UUID | None] = {}
+
+        def spy(**kwargs: object) -> object:
+            from companion.service import generate_for_plant
+
+            previous = kwargs["previous_observation"]
+            current = kwargs["observation"]
+            seen["previous"] = getattr(previous, "run_id", None)
+            seen["current"] = getattr(current, "run_id", None)
+            return generate_for_plant(**kwargs)  # type: ignore[arg-type]
+
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch(
+                "orchestrator.stages.assess_frames",
+                _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
+            ),
+            patch("orchestrator.stages.generate_companion_message", spy),
+        ):
+            status = execute_run(session, run, stages=STAGES)
+
+        assert status == "succeeded"
+        assert seen["current"] == run_id
+        assert seen["previous"] == older_run
+
+
+def test_an_invalid_health_status_fails_the_run(
+    e2e_session_factory: sessionmaker[Session],
+):
+    with e2e_session_factory() as session:
+        _plant_id, run_id = _add_plant_and_run(session, name="Pothos", species_code="epipremnum")
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+
+        def bad_rules(*_args: object, **_kwargs: object) -> None:
+            raise ValueError("not a health status")
+
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch(
+                "orchestrator.stages.assess_frames",
+                _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
+            ),
+            patch("orchestrator.stages.evaluate_observation", bad_rules),
+        ):
+            status = execute_run(session, run, stages=STAGES)
+
+        assert status == "failed"
 
 
 def test_pipeline_branch_low_confidence_request_info(
