@@ -25,7 +25,8 @@ from advice.service import generate_for_plant as generate_advice_for_plant
 from assessment.interface import get_previous_observation, get_trigger_result
 from assessment.models import Observation
 from assessment.schemas import HealthStatus, ObservationRead, TriggerDecision
-from assessment.service import evaluate_observation
+from assessment.service import AssessmentSkipped, assess_frames, evaluate_observation
+from capture.service import CaptureBusy, CaptureUnavailable, capture_for_plant
 from companion.service import generate_for_plant as generate_companion_message
 from core.db import session_factory
 from registry.interface import get_plant
@@ -52,13 +53,30 @@ class Stage:
 
 
 def run_capture(payload: StageInput) -> None:
-    """Preprocess the plant's latest capture batch (quality check, segment, align)."""
+    """Grab and store a webcam frame for the plant (quality, preprocess, align)."""
     logger.info("capture stage plant=%s run=%s", payload.plant_id, payload.run_id)
+    with session_factory() as session:
+        try:
+            result = capture_for_plant(session, payload.plant_id, payload.run_id)
+        except (CaptureUnavailable, CaptureBusy) as err:
+            logger.info("Capture stage skipped: %s", err)
+            raise StageSkipped(str(err)) from err
+        if not result.quality_passed:
+            reason = result.quality_reason or "quality check failed"
+            logger.info("Capture stage skipped: %s", reason)
+            raise StageSkipped(reason)
 
 
 def run_assessment(payload: StageInput) -> None:
-    """Run deterministic rule evaluation and milestone detection for the run."""
+    """Run the VLM probe, then deterministic rule evaluation for the run."""
     with session_factory() as session:
+        try:
+            assess_frames(
+                session, payload.plant_id, payload.run_id, frames_run_id=payload.run_id
+            )
+        except AssessmentSkipped as err:
+            logger.info("Assessment stage skipped: %s", err)
+            raise StageSkipped(str(err)) from err
         try:
             evaluate_observation(session, payload.plant_id, payload.run_id)
         except ValueError as err:

@@ -3,10 +3,11 @@
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -19,6 +20,8 @@ from assessment.db import Base as AssessmentBase
 from assessment.interface import get_trigger_result
 from assessment.models import Observation
 from assessment.schemas import HealthStatus, TriggerDecision
+from capture import models as capture_models  # noqa: F401 - register tables
+from capture.db import Base as CaptureBase
 from companion import models as companion_models  # noqa: F401 - register tables
 from companion.db import Base as CompanionBase
 from companion.interface import get_message_by_run_id
@@ -37,6 +40,7 @@ _BASES: tuple[type[DeclarativeBase], ...] = (
     AuthBase,
     RegistryBase,
     KnowledgeBase,
+    CaptureBase,
     AssessmentBase,
     AdviceBase,
     ActionBase,
@@ -56,6 +60,7 @@ def e2e_session_factory() -> Iterator[sessionmaker[Session]]:
             "auth": None,
             "registry": None,
             "knowledge": None,
+            "vision": None,
             "orchestrator": None,
             "assessment": None,
             "advice": None,
@@ -74,50 +79,91 @@ def e2e_session_factory() -> Iterator[sessionmaker[Session]]:
         engine.dispose()
 
 
-def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Session]):
-    """Branch 1: Healthy observation -> NO_ACTION -> Advice None -> Companion steady."""
-    plant_id = uuid.uuid4()
-    run_id = uuid.uuid4()
-    now = datetime.now(UTC)
+def _ok_capture(*_args: object, **_kwargs: object) -> SimpleNamespace:
+    return SimpleNamespace(quality_passed=True, quality_reason=None)
 
-    with e2e_session_factory() as session:
-        # Create registered plant
-        plant = Plant(
-            id=plant_id,
-            owner_id=uuid.uuid4(),
-            name="Monstera Deliciosa",
-            species_code="monstera_deliciosa",
-        )
-        session.add(plant)
 
-        # Create observation for this run
+def _write_observation(
+    health_status: str,
+    confidence: float,
+    observations: list[dict[str, str]],
+):
+    def assess_frames(
+        session: Session,
+        plant_id: uuid.UUID,
+        run_id: uuid.UUID,
+        *,
+        frames_run_id: uuid.UUID | None,
+    ) -> Observation:
+        now = datetime.now(UTC)
         obs = Observation(
             id=uuid.uuid4(),
             plant_id=plant_id,
             run_id=run_id,
             timestamp=now,
-            health_status=HealthStatus.HEALTHY.value,
-            confidence=0.95,
-            observations_json=[],
+            health_status=health_status,
+            confidence=confidence,
+            observations_json=observations,
             consensus_json={},
             image_refs_json=[],
             created_at=now,
         )
         session.add(obs)
+        session.commit()
+        return obs
 
-        # Create pipeline run
-        run = PipelineRun(
+    return assess_frames
+
+
+def _add_plant_and_run(
+    session: Session,
+    *,
+    name: str,
+    species_code: str | None,
+    device_id: str | None = None,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    plant_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    session.add(
+        Plant(
+            id=plant_id,
+            owner_id=uuid.uuid4(),
+            name=name,
+            species_code=species_code,
+            device_id=device_id,
+        )
+    )
+    session.add(
+        PipelineRun(
             id=run_id,
             plant_id=plant_id,
             scheduled_for=now,
             status="running",
             current_stage="capture",
         )
-        session.add(run)
-        session.commit()
+    )
+    session.commit()
+    return plant_id, run_id
 
-        # Execute all stages
-        with patch("orchestrator.stages.session_factory", e2e_session_factory):
+
+def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Session]):
+    """Branch 1: Healthy observation -> NO_ACTION -> Advice None -> Companion steady."""
+    with e2e_session_factory() as session:
+        plant_id, run_id = _add_plant_and_run(
+            session, name="Monstera Deliciosa", species_code="monstera_deliciosa"
+        )
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch(
+                "orchestrator.stages.assess_frames",
+                _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
+            ),
+        ):
             status = execute_run(session, run, stages=STAGES)
 
         assert status == "succeeded"
@@ -136,50 +182,34 @@ def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Ses
         assert comp_msg is not None
         assert comp_msg.source == "template_steady"
         assert "thriving" in comp_msg.message or "feeling great" in comp_msg.message
+        stored = session.scalars(select(Observation).where(Observation.run_id == run_id)).one()
+        assert stored.plant_id == plant_id
+        assert stored.health_status == HealthStatus.HEALTHY.value
 
 
 def test_pipeline_branch_low_confidence_request_info(
     e2e_session_factory: sessionmaker[Session],
 ):
     """Branch 2: Low-confidence observation (< 0.5) -> REQUEST_MORE_INFORMATION -> Photo prompt."""
-    plant_id = uuid.uuid4()
-    run_id = uuid.uuid4()
-    now = datetime.now(UTC)
-
     with e2e_session_factory() as session:
-        plant = Plant(
-            id=plant_id,
-            owner_id=uuid.uuid4(),
-            name="Fiddle Leaf Fig",
-            species_code="ficus_lyrata",
+        _plant_id, run_id = _add_plant_and_run(
+            session, name="Fiddle Leaf Fig", species_code="ficus_lyrata"
         )
-        session.add(plant)
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
 
-        obs = Observation(
-            id=uuid.uuid4(),
-            plant_id=plant_id,
-            run_id=run_id,
-            timestamp=now,
-            health_status=HealthStatus.UNHEALTHY.value,
-            confidence=0.35,  # Low confidence triggers photo request
-            observations_json=[{"type": "leaf_spot", "severity": "mild"}],
-            consensus_json={},
-            image_refs_json=[],
-            created_at=now,
-        )
-        session.add(obs)
-
-        run = PipelineRun(
-            id=run_id,
-            plant_id=plant_id,
-            scheduled_for=now,
-            status="running",
-            current_stage="capture",
-        )
-        session.add(run)
-        session.commit()
-
-        with patch("orchestrator.stages.session_factory", e2e_session_factory):
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch(
+                "orchestrator.stages.assess_frames",
+                _write_observation(
+                    HealthStatus.UNHEALTHY.value,
+                    0.35,
+                    [{"type": "leaf_spot", "severity": "mild"}],
+                ),
+            ),
+        ):
             status = execute_run(session, run, stages=STAGES)
 
         assert status == "succeeded"
@@ -201,44 +231,25 @@ def test_pipeline_branch_unhealthy_care_advice(
     e2e_session_factory: sessionmaker[Session],
 ):
     """Branch 3: Unhealthy observation -> CARE_ADVICE_REQUIRED -> CarePlan & Companion dialogue."""
-    plant_id = uuid.uuid4()
-    run_id = uuid.uuid4()
-    now = datetime.now(UTC)
-
     with e2e_session_factory() as session:
-        plant = Plant(
-            id=plant_id,
-            owner_id=uuid.uuid4(),
-            name="Pothos",
-            species_code="epipremnum_aureum",
+        _plant_id, run_id = _add_plant_and_run(
+            session, name="Pothos", species_code="epipremnum_aureum"
         )
-        session.add(plant)
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
 
-        obs = Observation(
-            id=uuid.uuid4(),
-            plant_id=plant_id,
-            run_id=run_id,
-            timestamp=now,
-            health_status=HealthStatus.UNHEALTHY.value,
-            confidence=0.92,
-            observations_json=[{"type": "wilting", "severity": "moderate"}],
-            consensus_json={},
-            image_refs_json=[],
-            created_at=now,
-        )
-        session.add(obs)
-
-        run = PipelineRun(
-            id=run_id,
-            plant_id=plant_id,
-            scheduled_for=now,
-            status="running",
-            current_stage="capture",
-        )
-        session.add(run)
-        session.commit()
-
-        with patch("orchestrator.stages.session_factory", e2e_session_factory):
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch(
+                "orchestrator.stages.assess_frames",
+                _write_observation(
+                    HealthStatus.UNHEALTHY.value,
+                    0.92,
+                    [{"type": "wilting", "severity": "moderate"}],
+                ),
+            ),
+        ):
             status = execute_run(session, run, stages=STAGES)
 
         assert status == "succeeded"
@@ -252,6 +263,7 @@ def test_pipeline_branch_unhealthy_care_advice(
         assert len(care_plan.actions) > 0
 
         from advice.interface import get_care_plan_actions
+
         rel_actions = get_care_plan_actions(session, care_plan.care_plan_id)
         assert len(rel_actions) == len(care_plan.actions)
 
@@ -259,3 +271,53 @@ def test_pipeline_branch_unhealthy_care_advice(
         assert comp_msg is not None
         assert comp_msg.source in ("llm", "template_fallback")
         assert len(comp_msg.message) > 10
+
+
+def test_pipeline_skips_when_webcam_map_is_empty(
+    e2e_session_factory: sessionmaker[Session],
+):
+    """Empty CAPTURE_WEBCAM_MAP skips capture; the run is skipped, not failed."""
+    with e2e_session_factory() as session:
+        _plant_id, run_id = _add_plant_and_run(
+            session,
+            name="Unmapped Plant",
+            species_code="monstera_deliciosa",
+            device_id="cam-1",
+        )
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("capture.service.get_settings") as settings,
+        ):
+            settings.return_value.capture_webcam_map = ""
+            status = execute_run(session, run, stages=STAGES)
+
+        assert status == "skipped"
+        assert run.current_stage == "capture"
+        assert "CAPTURE_WEBCAM_MAP" in (run.detail or "")
+        assert get_trigger_result(session, run_id) is None
+
+
+def test_pipeline_skips_when_assessment_has_no_baseline_frame(
+    e2e_session_factory: sessionmaker[Session],
+):
+    """Fewer than two processed frames: assess_frames raises AssessmentSkipped."""
+    with e2e_session_factory() as session:
+        _plant_id, run_id = _add_plant_and_run(
+            session, name="Baseline Plant", species_code="spath"
+        )
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+
+        with (
+            patch("orchestrator.stages.session_factory", e2e_session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+        ):
+            status = execute_run(session, run, stages=STAGES)
+
+        assert status == "skipped"
+        assert run.current_stage == "assessment"
+        assert "two frames" in (run.detail or "")
+        assert get_trigger_result(session, run_id) is None

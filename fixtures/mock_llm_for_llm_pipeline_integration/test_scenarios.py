@@ -21,6 +21,7 @@ import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -46,11 +47,13 @@ from advice.models import CarePlan, CarePlanAction
 from assessment.db import Base as AssessmentBase
 from assessment.models import Observation, PlantMilestone, TriggerResultRecord
 from assessment.schemas import HealthStatus
+from capture import models as capture_models  # noqa: F401 - register tables
+from capture.db import Base as CaptureBase
 from companion.db import Base as CompanionBase
 from companion.models import MessageRecord
 from core.db import Base as AuthBase
-from mock_model import MockChatModel
 from knowledge.db import Base as KnowledgeBase
+from mock_model import MockChatModel
 from orchestrator.db import Base as OrchestratorBase
 from orchestrator.models import PipelineRun
 from orchestrator.stages import STAGES
@@ -62,6 +65,7 @@ ALL_BASES = (
     AuthBase,
     RegistryBase,
     KnowledgeBase,
+    CaptureBase,
     OrchestratorBase,
     AssessmentBase,
     AdviceBase,
@@ -133,6 +137,7 @@ def build_session_factory() -> sessionmaker[Session]:
             "auth": None,
             "registry": None,
             "knowledge": None,
+            "vision": None,
             "orchestrator": None,
             "assessment": None,
             "advice": None,
@@ -276,8 +281,26 @@ def run_scenario(
             session.add(run)
             session.commit()
 
-            # 3. Execute run across stages
-            with patch("orchestrator.stages.session_factory", session_factory):
+            # 3. Execute run across stages (capture + VLM are faked; observation is pre-seeded)
+            def _ok_capture(*_args: object, **_kwargs: object) -> SimpleNamespace:
+                return SimpleNamespace(quality_passed=True, quality_reason=None)
+
+            def _use_seeded_observation(
+                db: Session,
+                _plant_id: uuid.UUID,
+                obs_run_id: uuid.UUID,
+                *,
+                frames_run_id: uuid.UUID | None,
+            ) -> Observation:
+                return db.scalars(
+                    select(Observation).where(Observation.run_id == obs_run_id)
+                ).one()
+
+            with (
+                patch("orchestrator.stages.session_factory", session_factory),
+                patch("orchestrator.stages.capture_for_plant", _ok_capture),
+                patch("orchestrator.stages.assess_frames", _use_seeded_observation),
+            ):
                 if not live_llm:
                     with patch("mlops.factory.get_llm", return_value=mock_llm):
                         status = execute_run(session, run, stages=STAGES)
