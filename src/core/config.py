@@ -79,6 +79,19 @@ class Settings(BaseSettings):
     llm_api_base: str = ""
     llm_api_key: str = ""
 
+    # --- VLM (images; used by `mlops.assessment`) ---
+    # "local" runs transformers in-process from `vlm_local_model_path`; "vllm"
+    # calls an OpenAI-compatible server at `vlm_api_base`. As with the LLM, no
+    # model name lives here: it comes from the Langfuse prompt version's `config`.
+    vlm_provider: str = "vllm"
+    vlm_api_base: str = ""
+    vlm_api_key: str = ""
+    vlm_local_model_path: str = "models/internvl3_5-2b"
+
+    # --- capture (webcam frames; used by `capture`) ---
+    # "device_id=webcam_index,..."; empty means no device is captured anywhere.
+    capture_webcam_map: str = ""
+
     # --- Langfuse (prompt management, tracing, datasets; used by `mlops`) ---
     # Langfuse is split by project, one per LLM-using component, so there is a
     # key pair per component rather than one for the server. Resolved by

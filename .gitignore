@@ -35,3 +35,4 @@ Thumbs.db
 .qwen/
 agent/
 skills-lock.json
+/models/
