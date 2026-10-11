@@ -203,22 +203,30 @@ def normalize_observation_type(value: object) -> str | None:
     return None
 
 
+def _symptom_pattern(alternatives: str) -> re.Pattern[str]:
+    """Match a whole symptom word that is not immediately negated."""
+
+    return re.compile(rf"(?<!\bno\s)(?<!\bnot\s)\b(?:{alternatives})\b")
+
+
+_SYMPTOM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("leaf_yellowing", _symptom_pattern(r"yellow|yellowing")),
+    ("brown_edges", _symptom_pattern(r"brown|browning|brown_edges|brown_tips")),
+    ("drooping", _symptom_pattern(r"droop|drooping|limp|collapsed")),
+    ("curling", _symptom_pattern(r"curl|curling")),
+    ("visible_damage", _symptom_pattern(r"damage|damaged|tear|tears|spot|spots|dry")),
+    ("discoloration", _symptom_pattern(r"discolor|discoloration")),
+)
+
+
 def observation_types_from_text(*values: object) -> list[str]:
     """Extract known symptom types from VLM type and description text."""
 
     text = " ".join(value for value in values if isinstance(value, str)).lower()
-    symptom_patterns = [
-        ("leaf_yellowing", r"\byellow|yellowing\b"),
-        ("brown_edges", r"\bbrown|browning|brown_edges|brown_tips\b"),
-        ("drooping", r"\bdroop|drooping|limp|collapsed\b"),
-        ("curling", r"\bcurl|curling\b"),
-        ("visible_damage", r"\bdamage|damaged|tear|tears|spot|spots|dry\b"),
-        ("discoloration", r"\bdiscolor|discoloration\b"),
-    ]
     matches = [
         symptom_type
-        for symptom_type, pattern in symptom_patterns
-        if re.search(pattern, text)
+        for symptom_type, pattern in _SYMPTOM_PATTERNS
+        if pattern.search(text)
     ]
     return list(dict.fromkeys(matches))
 

@@ -16,6 +16,7 @@ from mlops.assessment.aggregate import (
     AggregateError,
     aggregate_observations,
     extract_json_object,
+    observation_types_from_text,
 )
 from mlops.assessment.runtime import ProbeVerdict
 from mlops.assessment.schemas import ObservationType, RunObservation
@@ -185,6 +186,14 @@ def test_observations_are_ordered_worst_first_then_by_type() -> None:
         ("moderate", "drooping"),
         ("mild", "brown_edges"),
         ("mild", "curling"),
+    ]
+
+
+def test_negated_or_partial_words_are_not_new_symptoms() -> None:
+    assert observation_types_from_text("Leaves show no yellowing and are not dry.") == []
+    assert observation_types_from_text("The pot is spotless and the leaves look yellowish.") == []
+    assert observation_types_from_text("Leaves are not dry, but two leaves are yellowing.") == [
+        "leaf_yellowing"
     ]
 
 
