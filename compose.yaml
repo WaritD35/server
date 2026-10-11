@@ -10,7 +10,10 @@ name: pet-plant
 #
 # Self-hosted inference (VLM served with vLLM, segmentation) runs on separate
 # infrastructure and is NOT part of this file — point VLM_API_BASE /
-# SEGMENTATION_ENDPOINT at it via .env.
+# SEGMENTATION_ENDPOINT at it via .env. VLM_PROVIDER=vllm (default) talks to
+# that endpoint; VLM_PROVIDER=local runs transformers in-process and is not
+# what this image is built for. Webcam capture needs a host device mapped in
+# CAPTURE_WEBCAM_MAP; the empty default skips the capture stage.
 
 services:
   postgres:

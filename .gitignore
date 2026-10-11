@@ -30,8 +30,32 @@ Thumbs.db
 # AI agent skills
 .agents/
 .claude/
+.codex/
+.cursor/
+.githooks/
+.github/mcp.json
+.github/prompts/
+.github/skills/
 .grok/
 .kiro/
 .qwen/
+.serena/
+.zcode/
 agent/
 skills-lock.json
+
+# oh-my-agent runtime (local artifacts — do not commit)
+.agents/oma-config.local.cue
+.agents/oma-config.local.yaml
+.antigravitycli/
+.agents/results/
+.agents/state/
+.agents/backup/
+docs/plans/
+.migration-backup/
+.qwen/tmp/
+/models/
+
+# Local agent config
+.mcp.json
+AGENTS.md

@@ -14,6 +14,8 @@ import advice.db
 import advice.models  # noqa: F401
 import assessment.db
 import assessment.models  # noqa: F401
+import capture.db
+import capture.models  # noqa: F401
 import companion.db
 import companion.models  # noqa: F401
 import core.db
@@ -49,6 +51,7 @@ target_metadata = [
     knowledge.db.Base.metadata,
     action.db.Base.metadata,
     orchestrator.db.Base.metadata,
+    capture.db.Base.metadata,
     assessment.db.Base.metadata,
     advice.db.Base.metadata,
     companion.db.Base.metadata,
@@ -61,6 +64,7 @@ MANAGED_SCHEMAS = {
     "knowledge",
     "action",
     "orchestrator",
+    "vision",
     "assessment",
     "advice",
     "companion",

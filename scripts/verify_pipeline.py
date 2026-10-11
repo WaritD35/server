@@ -7,10 +7,11 @@ Run directly via:
 import sys
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 # Ensure src/ is in path
@@ -23,6 +24,8 @@ from advice.models import CarePlan, CarePlanAction
 from assessment.db import Base as AssessmentBase
 from assessment.models import Observation, TriggerResultRecord
 from assessment.schemas import HealthStatus
+from capture import models as capture_models  # noqa: F401 - register tables
+from capture.db import Base as CaptureBase
 from companion.db import Base as CompanionBase
 from companion.models import MessageRecord
 from core.db import Base as AuthBase
@@ -45,6 +48,7 @@ def main() -> None:
             "auth": None,
             "registry": None,
             "knowledge": None,
+            "vision": None,
             "orchestrator": None,
             "assessment": None,
             "advice": None,
@@ -57,6 +61,7 @@ def main() -> None:
         AuthBase,
         RegistryBase,
         KnowledgeBase,
+        CaptureBase,
         OrchestratorBase,
         AssessmentBase,
         AdviceBase,
@@ -73,7 +78,7 @@ def main() -> None:
         user_id = uuid.uuid4()
         now = datetime.now(UTC)
 
-        print("\n[Step 0] Registering Plant & Ingesting Unhealthy Visual Observation...")
+        print("\n[Step 0] Registering Plant (capture + VLM assessment are faked)...")
         plant = Plant(
             id=plant_id,
             owner_id=user_id,
@@ -81,20 +86,6 @@ def main() -> None:
             species_code="monstera_deliciosa",
         )
         session.add(plant)
-
-        obs = Observation(
-            id=uuid.uuid4(),
-            plant_id=plant_id,
-            run_id=run_id,
-            timestamp=now,
-            health_status=HealthStatus.UNHEALTHY.value,
-            confidence=0.92,
-            observations_json=[{"type": "leaf_yellowing", "severity": "moderate"}],
-            consensus_json={},
-            image_refs_json=["s3://captures/plant_001.jpg"],
-            created_at=now,
-        )
-        session.add(obs)
 
         run = PipelineRun(
             id=run_id,
@@ -106,8 +97,38 @@ def main() -> None:
         session.add(run)
         session.commit()
 
+        def _ok_capture(*_args: object, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(quality_passed=True, quality_reason=None)
+
+        def _write_unhealthy_observation(
+            db: Session,
+            obs_plant_id: uuid.UUID,
+            obs_run_id: uuid.UUID,
+            *,
+            frames_run_id: uuid.UUID | None,
+        ) -> Observation:
+            obs = Observation(
+                id=uuid.uuid4(),
+                plant_id=obs_plant_id,
+                run_id=obs_run_id,
+                timestamp=now,
+                health_status=HealthStatus.UNHEALTHY.value,
+                confidence=0.92,
+                observations_json=[{"type": "leaf_yellowing", "severity": "moderate"}],
+                consensus_json={},
+                image_refs_json=["s3://captures/plant_001.jpg"],
+                created_at=now,
+            )
+            db.add(obs)
+            db.commit()
+            return obs
+
         print("[Step 1] Executing Orchestrator Pipeline across all 4 stages...")
-        with patch("orchestrator.stages.session_factory", session_factory):
+        with (
+            patch("orchestrator.stages.session_factory", session_factory),
+            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.assess_frames", _write_unhealthy_observation),
+        ):
             status = execute_run(session, run, stages=STAGES)
 
         print(f"  ✓ Pipeline Run Status: {status}")
