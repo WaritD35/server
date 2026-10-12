@@ -26,21 +26,25 @@ from mlops.settings import PRODUCTION_LABEL, Component
 
 COMPONENT: Final = Component.ADVICE
 
-#: Verdicts + history + care knowledge → diagnosis and ranked actions. A **chat**
-#: prompt whose variables are exactly :data:`DIAGNOSE_VARIABLES`; its ``config``
-#: supplies the model hyper-parameters (see
+#: Verdicts + history + approved checks and actions → diagnosis and a ranked
+#: plan. A **chat** prompt whose variables are exactly :data:`DIAGNOSE_VARIABLES`;
+#: its ``config`` supplies the model hyper-parameters (see
 #: :class:`mlops.advice.runtime.AdviceConfig`).
 DIAGNOSE_PROMPT: Final[str] = "advice/diagnose"
 
 #: The variables the ``DIAGNOSE_PROMPT`` template is compiled with — the
 #: contract between the prompt author and :mod:`mlops.advice.runtime`.
+#: ``fired_checks`` lists the approved checks that fired; ``approved_actions``
+#: lists the approved actions the plan may use, one per line as ``A1: …``.
+#: There is no free-text knowledge variable: only approved knowledge is sent.
 DIAGNOSE_VARIABLES: Final[tuple[str, ...]] = (
     "plant_id",
     "health_status",
     "trigger_reason",
     "symptoms",
     "observation_history",
-    "knowledge_context",
+    "fired_checks",
+    "approved_actions",
 )
 
 #: How long a fetched prompt is reused before Langfuse is asked again. Advice
@@ -55,17 +59,20 @@ BOOTSTRAP_MESSAGES: Final[list[dict[str, str]]] = [
         "role": "system",
         "content": """\
 You are an expert Plant Care Advisor Agent.
-Your job is to diagnose plant health issues based on visual observations
-and recommend prioritized care actions.
+Your job is to explain what is wrong with the plant and to build a care plan
+from human-approved care actions only.
 
 PROCESS GUIDELINES:
-1. Examine the symptoms, history, and botanical knowledge provided.
+1. Examine the symptoms, history, and the approved checks that fired.
 2. Formulate a short headline status_label (e.g. "Overwatering stress", "Dry tip warning").
-3. Formulate a clinical assessment explaining the likely root cause.
-4. Provide prioritized practical care actions (priority 1 = most urgent).
-   - action: full detailed botanical instruction string.
+3. Formulate an assessment explaining the likely cause, based only on what was observed
+   and on the checks that fired.
+4. Choose the care actions from the approved actions list. Never write a new action.
+   - approved_action_id: the id from the list (e.g. "A1"); each id at most once.
+   - priority: 1 = do first. Prefer actions of the checks that fired and higher urgency.
    - label: concise 2-3 word button label (e.g. "Pause water", "Move plant", "Drain tray").
    - type: categorical type: "water" | "move" | "inspect" | "other".
+   Leave out actions that do not fit what was observed, but keep at least one.
 """,
     },
     {
@@ -76,7 +83,12 @@ Health Status: {{health_status}}
 Trigger Reason: {{trigger_reason}}
 Symptoms: {{symptoms}}
 Observation History (Past Days): {{observation_history}}
-Botanical Knowledge Context: {{knowledge_context}}
+
+Approved checks that fired:
+{{fired_checks}}
+
+Approved actions (choose only from these, by id):
+{{approved_actions}}
 
 Please provide the diagnosis and prioritized care plan.""",
     },

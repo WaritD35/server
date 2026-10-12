@@ -23,6 +23,11 @@ def _extract_actions(plan: CarePlan) -> list[CareAction]:
                     if a.action_type in ActionType._value2member_map_
                     else ActionType.OTHER
                 ),
+                approved_action_id=a.approved_action_id,
+                check_slug=a.check_slug,
+                urgency=a.urgency,
+                expect_typical_hours=a.expect_typical_hours,
+                expect_max_hours=a.expect_max_hours,
             )
             for a in plan.actions
         ]
@@ -95,6 +100,11 @@ def get_care_plan_actions(session: Session, care_plan_id: str) -> list[CarePlanA
             action=r.action,
             label=r.label,
             action_type=r.action_type,
+            approved_action_id=r.approved_action_id,
+            check_slug=r.check_slug,
+            urgency=r.urgency,
+            expect_typical_hours=r.expect_typical_hours,
+            expect_max_hours=r.expect_max_hours,
             created_at=r.created_at,
         )
         for r in rows

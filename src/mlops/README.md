@@ -40,8 +40,8 @@ companion  ─┘
 **The dependency is one-way.** `mlops` never imports a bounded context — its
 entry points take plain values and dataclasses defined here, and the calling
 context maps its own models onto them (e.g. `assessment` builds an
-`mlops.assessment.ProbeInput` with `plant_id`, `species`, `plant_knowledge`,
-`previous_image` and `current_image`). Without this rule
+`mlops.assessment.ProbeInput` with `plant_id`, `species`, `previous_image`,
+`current_image` and the approved `checks`). Without this rule
 `knowledge → mlops → knowledge` closes a cycle.
 
 ## One package per component, one owner each
@@ -178,11 +178,13 @@ UI, and running the script again creates another version rather than updating v1
 
 A **text** prompt named **`assessment/plant_observation_pair`** with the
 `production` label, compiled with exactly
-`PROBE_VARIABLES = ("plant_knowledge", "probe_checks")`. Both are whole optional
-sections or `""`: the species' care text, and its **approved `knowledge` probes**
-(one block per check: slug, question, what "yes" and "no" look like, and what it
-is not). The runtime sends the compiled text as the text part of a single user
-message next to the two images.
+`PROBE_VARIABLES = ("probe_checks",)`: the species' **approved `knowledge`
+probes** (one block per check: slug, question, what "yes" and "no" look like,
+and what it is not), or `""`. That is the only knowledge the VLM sees — approved
+and structured, never free research text. Older versions still holding the
+retired `{{plant_knowledge}}` have it compiled to `""`
+(`prompts.RETIRED_VARIABLES`). The runtime sends the compiled text as the text
+part of a single user message next to the two images.
 
 The answer carries one `probe_findings` entry per listed check (`slug`,
 `answer` = `yes | no | cannot_tell`, `evidence`). An unknown or duplicated slug
@@ -209,10 +211,17 @@ A **chat** prompt named **`advice/diagnose`** with the `production` label,
 compiled with exactly `prompts.DIAGNOSE_VARIABLES`:
 
 `plant_id`, `health_status`, `trigger_reason`, `symptoms`, `observation_history`,
-`knowledge_context`
+`fired_checks`, `approved_actions`
 
-(`symptoms` and `observation_history` arrive as JSON strings.) The output shape is
-enforced by structured output (`GeneratedCarePlan`), not by the prompt text.
+(`symptoms` and `observation_history` arrive as JSON strings.) **Only approved,
+structured knowledge** is sent: the approved checks that fired on the run and the
+approved `knowledge` probe actions the plan may use, listed as `A1`, `A2`, …
+(those of the fired checks; every approved action of the species when none
+fired). The model does not write instructions: `GeneratedCarePlan` names an
+approved action per step (`approved_action_id`), its priority, a button label and
+a type. An id that was not listed sends the answer back for one repair; the
+instruction, urgency and expected time to effect are copied from the approved
+action, so every step traces to one.
 
 Its `config` carries `temperature` and, optionally, `model`. Advice is the one
 component where `model` may be absent: it reaches its model through
@@ -223,10 +232,13 @@ provider's default.
 
 Advice must not stop the pipeline, so it **degrades** instead of raising: if the
 `production` prompt cannot be fetched it runs the in-repo bootstrap prompt
-(`prompts.BOOTSTRAP_MESSAGES`), and if the LLM call fails it returns a rule-based
-plan. `AdviceResult.prompt_ref` (`advice/diagnose@3`, or `…@bootstrap`) and
-`AdviceResult.source` (`llm` | `fallback`) say which path produced a plan. A
-pinned `version` (an experiment) never falls back.
+(`prompts.BOOTSTRAP_MESSAGES`), and if the LLM call fails it returns the
+approved actions in order. A plant with **no approved actions** gets no LLM call
+at all, only a generic "inspect the plant" step: without approved knowledge the
+system does not prescribe. `AdviceResult.prompt_ref` (`advice/diagnose@3`, or
+`…@bootstrap`) and `AdviceResult.source` (`llm` | `fallback` | `no_knowledge`)
+say which path produced a plan. A pinned `version` (an experiment) never falls
+back.
 
 Register it with `python -m mlops.advice.seed [--model <id>]`.
 

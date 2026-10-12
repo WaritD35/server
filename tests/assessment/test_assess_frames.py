@@ -97,7 +97,10 @@ def test_happy_path_writes_one_observation_mapped_from_the_verdict(
     (sent,) = probe.calls
     assert sent.plant_id == str(plant_id)
     assert sent.species == "Spathiphyllum wallisii"
-    assert sent.plant_knowledge == "Keep the soil moist."
+    # The research text exists but is not approved knowledge, so it is not sent.
+    assert not hasattr(sent, "plant_knowledge")
+    assert "Keep the soil moist." not in repr(sent)
+    assert sent.checks == ()
     assert sent.previous_image == f"jpeg:{pair.previous.object_key}".encode()
     assert sent.current_image == f"jpeg:{pair.current.object_key}".encode()
 
@@ -121,7 +124,7 @@ def test_happy_path_writes_one_observation_mapped_from_the_verdict(
     assert stored.companion_message is None
 
 
-def test_missing_species_entry_and_knowledge_fall_back_with_warnings(
+def test_a_missing_species_entry_falls_back_with_a_warning(
     session: Session,
     plant_id: uuid.UUID,
     frames: FakeFrames,
@@ -135,11 +138,10 @@ def test_missing_species_entry_and_knowledge_fall_back_with_warnings(
 
     (sent,) = probe.calls
     assert sent.species == "spath"
-    assert sent.plant_knowledge == ""
+    assert sent.checks == ()
     assert frames.pair_calls == [(plant_id, None)]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("species" in m and "spath" in m for m in warnings)
-    assert any("knowledge" in m and "spath" in m for m in warnings)
     assert len(_observations(session)) == 1
 
 

@@ -16,7 +16,7 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_care_knowledge, get_species, get_species_probes
+from knowledge.interface import get_species, get_species_probes
 from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
@@ -430,20 +430,13 @@ def assess_frames(
     else:
         species_name = species.scientific_name
 
-    knowledge = get_care_knowledge(session, plant.species_code)
-    if knowledge is None:
-        logger.warning(
-            "no care knowledge for species %s; sending an empty section",
-            plant.species_code,
-        )
-        knowledge = ""
-
+    # Only approved, structured knowledge reaches the VLM: the species' approved
+    # checks. Research text is not sent.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
             species=species_name,
-            plant_knowledge=knowledge,
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),

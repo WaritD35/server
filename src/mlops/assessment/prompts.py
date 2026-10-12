@@ -34,11 +34,15 @@ PROBE_PROMPT_TYPE: Final[str] = "text"
 
 #: The variables the ``PROBE_PROMPT`` template is compiled with — the contract
 #: between the prompt author and :mod:`mlops.assessment.runtime`.
-#: Both are whole optional sections, or ``""``, so the template needs no
-#: conditional: ``plant_knowledge`` (``"Plant knowledge:\n…"``) and
-#: ``probe_checks`` (the species' approved ``knowledge`` probes, one block each).
-#: A version without ``{{probe_checks}}`` still runs; its checks are not asked.
-PROBE_VARIABLES: Final[tuple[str, ...]] = ("plant_knowledge", "probe_checks")
+#: ``probe_checks`` is the species' approved ``knowledge`` probes, one block
+#: each, or ``""`` — the only knowledge the VLM sees. A version without
+#: ``{{probe_checks}}`` still runs; its checks are not asked.
+PROBE_VARIABLES: Final[tuple[str, ...]] = ("probe_checks",)
+
+#: Variables older prompt versions still contain, compiled to ``""`` so their
+#: placeholder never reaches the VLM. ``plant_knowledge`` carried free research
+#: text, which assessment no longer sends.
+RETIRED_VARIABLES: Final[dict[str, str]] = {"plant_knowledge": ""}
 
 #: How long a fetched prompt is reused before Langfuse is asked again. This is
 #: the request path, so a promoted label takes effect within a minute.
@@ -55,8 +59,6 @@ taken from the same camera position at different times.
 
 - Image 1 is the previous photo.
 - Image 2 is the current photo.
-
-{{plant_knowledge}}
 
 {{probe_checks}}
 

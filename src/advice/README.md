@@ -9,9 +9,12 @@ specific, ordered care actions with their reasoning.
 
 - Analyse the current observations and this plant's history to produce a specific
   **diagnosis**.
-- Recommend ordered, actionable steps with a calculated **urgency**.
-- Provide explicit **rationale and citations**, grounding the LLM's reasoning in
-  the extracted vision data and the care knowledge base (retrieval-grounded).
+- Recommend ordered steps taken **only from approved `knowledge` actions** — the
+  actions of the approved checks that fired on the run (every approved action of
+  the species when none fired). The LLM orders and labels them; the instruction,
+  urgency and expected time to effect are the approved ones, and each stored
+  step records the approved action it came from. A plant with no approved
+  actions gets a generic "inspect the plant" step, never invented advice.
 - Turn an abstaining probe into a question to the owner rather than a guess;
   escalate when prior advice went unheeded.
 - Produce the character's words for `companion`.
@@ -25,7 +28,9 @@ specific, ordered care actions with their reasoning.
 ## Inputs
 
 - **Internal state & verdicts** from `assessment`.
-- Care knowledge (for retrieval / citations) from `knowledge`.
+- **Approved** checks and actions only, from `knowledge.get_species_probes`
+  (research text is never read), and the fired checks from the run's
+  `assessment` observation.
 - External LLM — **text only, never images**.
 
 ## Outputs

@@ -1,4 +1,4 @@
-"""``mlops.advice`` — the Langfuse prompt, its bootstrap stand-in, and the fallback plan."""
+"""``mlops.advice`` — plans built only from approved actions, prompts and fallbacks."""
 
 from __future__ import annotations
 
@@ -13,13 +13,42 @@ from langchain_core.runnables import RunnableLambda
 from langfuse.model import ChatPromptClient
 
 from mlops.advice import prompts, runtime
-from mlops.advice.runtime import AdviceConfig, AdviceInput, generate_advice
+from mlops.advice.runtime import (
+    AdviceConfig,
+    AdviceInput,
+    ApprovedAction,
+    FiredCheck,
+    generate_advice,
+)
 
+PAUSE = ApprovedAction(
+    id="11111111-1111-1111-1111-111111111111",
+    check_slug="water_excess.soggy_soil",
+    care_need="water_excess",
+    instruction="Pause watering until the top 3 cm of soil is dry.",
+    urgency="soon",
+    expect_typical_hours=48,
+    expect_max_hours=96,
+)
+DRAIN = ApprovedAction(
+    id="22222222-2222-2222-2222-222222222222",
+    check_slug="water_excess.soggy_soil",
+    care_need="water_excess",
+    instruction="Empty the saucer under the pot.",
+    urgency="now",
+    expect_typical_hours=1,
+    expect_max_hours=6,
+)
+
+#: The model's answer refers to the listed keys: A1 = PAUSE, A2 = DRAIN.
 PLAN = {
     "status_label": "Overwatering stress",
-    "assessment": "Soil stays wet.",
+    "assessment": "The soil stays wet.",
     "confidence": 0.9,
-    "actions": [{"priority": 1, "action": "Pause watering.", "label": "Pause water"}],
+    "actions": [
+        {"approved_action_id": "A1", "priority": 2, "label": "Pause water", "type": "water"},
+        {"approved_action_id": "A2", "priority": 1, "label": "Drain tray", "type": "Water"},
+    ],
 }
 
 PAYLOAD = AdviceInput(
@@ -28,23 +57,33 @@ PAYLOAD = AdviceInput(
     symptoms=[{"type": "leaf_yellowing", "severity": "severe"}],
     observation_history=[{"health_status": "healthy", "symptoms": []}],
     trigger_reason="Health status dropped.",
+    fired_checks=(
+        FiredCheck(
+            slug="water_excess.soggy_soil",
+            care_need="water_excess",
+            question="Is the soil surface dark and wet?",
+            evidence="dark wet soil",
+        ),
+    ),
+    approved_actions=(PAUSE, DRAIN),
 )
 
 
 class FakeModel:
-    """Records what the structured-output call was sent."""
+    """Answers in turn from ``answers`` (the last one repeats); records what it was sent."""
 
-    def __init__(self, answer: Any = PLAN) -> None:
-        self.answer = answer
+    def __init__(self, *answers: Any) -> None:
+        self.answers = list(answers) or [PLAN]
         self.sent: list[Any] = []
         self.kwargs: dict[str, Any] = {}
 
     def with_structured_output(self, _schema: Any) -> RunnableLambda[Any, Any]:
         def _call(messages: Any) -> Any:
             self.sent.append(messages)
-            if isinstance(self.answer, Exception):
-                raise self.answer
-            return self.answer
+            answer = self.answers[min(len(self.sent) - 1, len(self.answers) - 1)]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
 
         return RunnableLambda(_call)
 
@@ -56,7 +95,7 @@ class FakePrompt:
         self.config = config
 
     def compile(self, **variables: str) -> list[dict[str, str]]:
-        return [{"role": "user", "content": f"LANGFUSE {variables['symptoms']}"}]
+        return [{"role": "user", "content": f"LANGFUSE {variables['approved_actions']}"}]
 
 
 @pytest.fixture
@@ -69,6 +108,11 @@ def model(monkeypatch: pytest.MonkeyPatch) -> FakeModel:
 
     monkeypatch.setattr("mlops.factory.get_llm", get_llm)
     return fake
+
+
+@pytest.fixture
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runtime, "is_configured", lambda _c: False)
 
 
 PROPAGATED: list[dict[str, Any]] = []
@@ -101,32 +145,108 @@ def _nullcontext() -> Any:
     yield
 
 
-def test_uses_the_bootstrap_prompt_when_langfuse_is_not_configured(
-    model: FakeModel, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(runtime, "is_configured", lambda _c: False)
+# --------------------------------------------------------------------------- #
+# only approved knowledge
+# --------------------------------------------------------------------------- #
 
+
+def test_the_plan_is_made_of_approved_actions_only(model: FakeModel, offline: None) -> None:
     result = generate_advice(PAYLOAD)
 
     assert result.source == "llm"
     assert result.status_label == "Overwatering stress"
-    assert result.prompt_version is None
-    assert result.prompt_ref == "advice/diagnose@bootstrap"
-    roles = [role for role, _ in model.sent[0]]
-    assert roles == ["system", "user"]
+    first, second = result.actions
+    # Ordered by the model's priority; text, urgency and timing copied verbatim.
+    assert (first["priority"], first["approved_action_id"]) == (1, DRAIN.id)
+    assert first["action"] == "Empty the saucer under the pot."
+    assert (first["urgency"], first["expect_typical_hours"], first["expect_max_hours"]) == (
+        "now",
+        1,
+        6,
+    )
+    assert (first["label"], first["type"]) == ("Drain tray", "water")
+    assert first["check_slug"] == "water_excess.soggy_soil"
+    assert (second["priority"], second["approved_action_id"]) == (2, PAUSE.id)
+    assert first["id"].startswith("act_")
 
 
-def test_json_in_the_variables_reaches_the_model_verbatim(
-    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+def test_the_prompt_lists_the_fired_checks_and_the_approved_actions(
+    model: FakeModel, offline: None
 ) -> None:
-    """Braces in the symptoms are data, not template variables."""
-    monkeypatch.setattr(runtime, "is_configured", lambda _c: False)
-
     generate_advice(PAYLOAD)
 
     user = model.sent[0][1][1]
+    assert "water_excess.soggy_soil (water_excess): Is the soil surface dark and wet?" in user
+    assert "- A1: Pause watering until the top 3 cm of soil is dry." in user
+    assert "- A2: Empty the saucer under the pot." in user
+    assert "effect expected within 1-6 h" in user
     assert json.dumps(PAYLOAD.symptoms) in user
     assert "{{" not in user
+
+
+def test_an_action_that_was_not_listed_is_sent_back_once(offline: None, monkeypatch) -> None:
+    invented = {**PLAN, "actions": [{"approved_action_id": "A9", "priority": 1, "label": "Repot"}]}
+    fake = FakeModel(invented, PLAN)
+    monkeypatch.setattr("mlops.factory.get_llm", lambda *_a, **_k: fake)
+
+    result = generate_advice(PAYLOAD)
+
+    assert result.source == "llm"
+    assert len(fake.sent) == 2
+    assert "'A9' is not one of ['A1', 'A2']" in fake.sent[1][-1][1]
+
+
+def test_an_action_that_never_validates_falls_back_to_approved_actions(
+    offline: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    invented = {**PLAN, "actions": [{"approved_action_id": "A9", "priority": 1, "label": "Repot"}]}
+    fake = FakeModel(invented)
+    monkeypatch.setattr("mlops.factory.get_llm", lambda *_a, **_k: fake)
+
+    result = generate_advice(PAYLOAD)
+
+    assert result.source == "fallback"
+    assert [a["approved_action_id"] for a in result.actions] == [PAUSE.id, DRAIN.id]
+    assert result.assessment == "Approved checks fired: water_excess.soggy_soil."
+
+
+def test_an_llm_failure_uses_the_approved_actions_in_order(
+    offline: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeModel(RuntimeError("LLM unreachable"))
+    monkeypatch.setattr("mlops.factory.get_llm", lambda *_a, **_k: fake)
+
+    result = generate_advice(PAYLOAD)
+
+    assert result.source == "fallback"
+    assert [a["action"] for a in result.actions] == [PAUSE.instruction, DRAIN.instruction]
+    assert all(a["label"] == "Water excess" for a in result.actions)
+
+
+def test_without_approved_actions_no_llm_is_called(model: FakeModel, offline: None) -> None:
+    result = generate_advice(dataclasses.replace(PAYLOAD, fired_checks=(), approved_actions=()))
+
+    assert model.sent == []
+    assert result.source == "no_knowledge"
+    (step,) = result.actions
+    assert step["type"] == "inspect"
+    assert "approved_action_id" not in step
+    assert "No approved care actions" in result.assessment
+
+
+# --------------------------------------------------------------------------- #
+# prompts and tracing
+# --------------------------------------------------------------------------- #
+
+
+def test_uses_the_bootstrap_prompt_when_langfuse_is_not_configured(
+    model: FakeModel, offline: None
+) -> None:
+    result = generate_advice(PAYLOAD)
+
+    assert result.prompt_version is None
+    assert result.prompt_ref == "advice/diagnose@bootstrap"
+    assert [role for role, _ in model.sent[0]] == ["system", "user"]
 
 
 def test_runs_the_production_prompt_and_its_config(
@@ -144,14 +264,12 @@ def test_runs_the_production_prompt_and_its_config(
 
     assert calls == [{"label": "production"}]
     assert model.kwargs == {"temperature": 0.5, "model_override": "gpt-x"}
-    assert model.sent[0][0][1].startswith("LANGFUSE ")
+    assert model.sent[0][0][1].startswith("LANGFUSE - A1: ")
     assert result.prompt_version == 7
     assert result.trace_id == "trace-1"
 
 
-def test_the_trace_carries_the_run_id(
-    model: FakeModel, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_trace_carries_the_run_id(model: FakeModel, monkeypatch: pytest.MonkeyPatch) -> None:
     _langfuse_configured(monkeypatch, lambda *_, **__: FakePrompt({}))
 
     generate_advice(dataclasses.replace(PAYLOAD, run_id="run-9"))
@@ -186,18 +304,6 @@ def test_a_pinned_version_never_falls_back(
         generate_advice(PAYLOAD, version=4)
 
 
-def test_an_llm_failure_returns_the_rule_based_plan(
-    model: FakeModel, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(runtime, "is_configured", lambda _c: False)
-    model.answer = RuntimeError("LLM unreachable")
-
-    result = generate_advice(PAYLOAD)
-
-    assert result.source == "fallback"
-    assert [a["label"] for a in result.actions] == ["Check soil", "Check light"]
-
-
 def test_overrides_win_over_the_prompt_config() -> None:
     config = AdviceConfig.from_prompt_config(
         {"model": "a", "temperature": 0.1}, overrides={"temperature": 0.9}
@@ -211,6 +317,7 @@ def test_the_bootstrap_prompt_uses_exactly_the_declared_variables() -> None:
     used = set(prompts._VARIABLE.findall(text))
     assert used == set(prompts.DIAGNOSE_VARIABLES)
     assert set(PAYLOAD.as_prompt_variables()) == set(prompts.DIAGNOSE_VARIABLES)
+    assert "knowledge_context" not in prompts.DIAGNOSE_VARIABLES
 
 
 def test_get_rejects_a_text_prompt(monkeypatch: pytest.MonkeyPatch) -> None:

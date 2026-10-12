@@ -17,9 +17,17 @@ class ActionType(StrEnum):
 class CareAction(BaseModel):
     id: str
     priority: int = 1
+    #: The approved instruction, verbatim.
     action: str
     label: str
     type: ActionType = ActionType.OTHER
+    #: The approved ``knowledge`` action it came from (``None``: generic step of
+    #: a plant with no approved actions).
+    approved_action_id: uuid.UUID | None = None
+    check_slug: str | None = None
+    urgency: str | None = None
+    expect_typical_hours: int | None = None
+    expect_max_hours: int | None = None
 
 
 class CarePlanActionRead(BaseModel):
@@ -31,6 +39,11 @@ class CarePlanActionRead(BaseModel):
     action: str
     label: str
     action_type: str
+    approved_action_id: uuid.UUID | None = None
+    check_slug: str | None = None
+    urgency: str | None = None
+    expect_typical_hours: int | None = None
+    expect_max_hours: int | None = None
     created_at: datetime
 
 

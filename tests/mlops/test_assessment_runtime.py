@@ -36,7 +36,6 @@ from mlops.settings import Component
 PROBE = ProbeInput(
     plant_id="plant-1",
     species="Spathiphyllum wallisii",
-    plant_knowledge="Droops when dry.",
     previous_image=b"previous-jpeg",
     current_image=b"current-jpeg",
 )
@@ -82,7 +81,7 @@ class FakePrompt:
 
     def compile(self, **variables: Any) -> str:
         self.compiled_with.append(variables)
-        return f"Describe the plant.\n{variables.get('plant_knowledge', '')}"
+        return f"Describe the plant.\n{variables.get('probe_checks', '')}"
 
 
 class FakeBackend:
@@ -225,16 +224,17 @@ def test_the_prompt_is_compiled_with_exactly_the_declared_variables(
 
     run_probe(PROBE)
 
-    assert [tuple(v) for v in prompt.compiled_with] == [prompts.PROBE_VARIABLES]
-    assert prompt.compiled_with[0]["plant_knowledge"] == "Plant knowledge:\nDroops when dry."
+    (compiled,) = prompt.compiled_with
+    assert set(compiled) == set(prompts.PROBE_VARIABLES) | set(prompts.RETIRED_VARIABLES)
+    # An older version's retired placeholder compiles to nothing: no research text
+    # reaches the VLM.
+    assert compiled["plant_knowledge"] == ""
 
 
-def test_no_knowledge_and_no_checks_compile_to_empty_sections() -> None:
-    probe = ProbeInput(
-        plant_id="p", species="s", plant_knowledge="  ", previous_image=b"", current_image=b""
-    )
+def test_no_checks_compile_to_an_empty_section() -> None:
+    probe = ProbeInput(plant_id="p", species="s", previous_image=b"", current_image=b"")
 
-    assert probe.as_prompt_variables() == {"plant_knowledge": "", "probe_checks": ""}
+    assert probe.as_prompt_variables() == {"probe_checks": ""}
 
 
 # --------------------------------------------------------------------------- #
@@ -336,7 +336,7 @@ def test_a_prompt_without_the_checks_section_records_no_results(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     old = FakePrompt(dict(CONFIG))
-    old.variables = ["plant_knowledge"]  # type: ignore[attr-defined]
+    old.variables = ["plant_knowledge"]  # type: ignore[attr-defined]  # a pre-checks version
     monkeypatch.setattr(runtime.prompts, "get", lambda *_, **__: old)
     use_backend(monkeypatch, FakeBackend(answer()))
 

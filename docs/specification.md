@@ -231,7 +231,7 @@
 
 ### 3.4 `knowledge.interface`
 - `get_species(session: Session, species_code: str) -> SpeciesRead | None` — catalogue row; `assessment.assess_frames` uses `scientific_name` (or the code if unregistered)
-- `get_care_knowledge(session: Session, species_code: str, query_vector: list[float] | None = None, *, limit: int = 4, max_chars: int = 2500) -> str | None` — botanical text (pgvector, falling back to the active research document). `assessment.assess_frames` calls this with `(session, species_code)` only; `None` becomes `""` with a warning
+- `get_care_knowledge(session: Session, species_code: str, query_vector: list[float] | None = None, *, limit: int = 4, max_chars: int = 2500) -> str | None` — free botanical text (pgvector, falling back to the active research document). **Not used by the pipeline**: the text is not approved. `assessment` and `advice` use only the approved probe set (`get_species_probes`): assessment asks its probes as VLM checks, advice builds care plans from its actions
 - `get_species_probes(session: Session, species_code: str) -> SpeciesProbesBundle | None` — approved probe bundle
 
 ### 3.5 `registry.interface`
@@ -262,7 +262,7 @@ flowchart TD
     DecisionCheck -->|REQUEST_MORE_INFO| AdvNone2[3. Advice Stage\nReturns None / 0 Tokens]
     AdvNone2 --> CompInfo[4. Companion Stage\nStatic Photo Request Template\nsource=template_info_request]
 
-    DecisionCheck -->|CARE_ADVICE_REQUIRED| AdvGen[3. Advice Stage\nLLM Diagnosis + Ranked Actions\nwith pgvector RAG]
+    DecisionCheck -->|CARE_ADVICE_REQUIRED| AdvGen[3. Advice Stage\nLLM Diagnosis + Ranked Actions\nfrom approved knowledge actions]
     AdvGen --> CompLLM[4. Companion Stage\nLLM First-Person Plant Persona\nwith 2-Tier Memory & Fact Validation]
 
     CompSteady --> Finish([Run Succeeded & Persisted])
@@ -303,7 +303,7 @@ The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` a
 
 ## 4.3 Prompt Management (Langfuse)
 
-`assessment`, `advice`, `companion` and `knowledge` resolve their prompts from Langfuse by the `production` label (experiments pin a version). New versions of the assessment, advice and companion prompts are registered with `python -m mlops.assessment.seed --model <id>`, `python -m mlops.advice.seed` and `python -m mlops.companion.seed`; a first version goes live, later ones are created unlabelled until promoted (`--promote`, or moving the label in the Langfuse UI). `advice` falls back to its in-repo bootstrap prompt when the `production` prompt cannot be fetched, and to a rule-based plan when the LLM call fails, so the companion stage always runs. `companion` likewise falls back to its bootstrap prompt, and to its deterministic template when the LLM call fails; the per-status tones live in the prompt version's `config.tones`.
+`assessment`, `advice`, `companion` and `knowledge` resolve their prompts from Langfuse by the `production` label (experiments pin a version). New versions of the assessment, advice and companion prompts are registered with `python -m mlops.assessment.seed --model <id>`, `python -m mlops.advice.seed` and `python -m mlops.companion.seed`; a first version goes live, later ones are created unlabelled until promoted (`--promote`, or moving the label in the Langfuse UI). `advice` falls back to its in-repo bootstrap prompt when the `production` prompt cannot be fetched, and to its approved actions in order when the LLM call fails, so the companion stage always runs. Care plan steps come only from approved `knowledge` probe actions (the model picks and orders them by id; the instruction, urgency and expected time to effect are copied); a plant with no approved actions gets only a generic inspection step. `companion` likewise falls back to its bootstrap prompt, and to its deterministic template when the LLM call fails; the per-status tones live in the prompt version's `config.tones`.
 
 ---
 

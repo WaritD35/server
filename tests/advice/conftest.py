@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -15,6 +15,7 @@ from assessment.db import Base as AssessmentBase
 from core.db import Base as AuthBase
 from knowledge import models as knowledge_models  # noqa: F401 - register tables
 from knowledge.db import Base as KnowledgeBase
+from knowledge.db import create_views
 from registry import models as registry_models  # noqa: F401 - register tables
 from registry.db import Base as RegistryBase
 
@@ -46,9 +47,14 @@ def session_factory() -> Iterator[sessionmaker[Session]]:
     )
     for base in _BASES:
         base.metadata.create_all(engine)
+    # The approved-probe lookup reads staleness from this view.
+    with engine.begin() as conn:
+        create_views(conn)
     try:
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
+        with engine.begin() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS probe_set_freshness"))
         for base in reversed(_BASES):
             base.metadata.drop_all(engine)
         engine.dispose()

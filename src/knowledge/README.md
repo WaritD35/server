@@ -9,8 +9,9 @@ Few-shot **exemplar images** for the probes are kept in MinIO.
 
 - **Owns (Postgres schema):** `knowledge`
 - **Owns (MinIO):** `exemplars`
-- **Feeds:** `assessment` (`get_species`, `get_care_knowledge`, and the approved
-  probe bundle), `advice` (actions)
+- **Feeds:** `assessment` (`get_species`, and the approved probes as VLM
+  checks), `advice` (the approved actions). Only **approved, structured**
+  knowledge leaves this context for the pipeline; research text does not.
 - **Calls out:** external LLM for probe generation (text only, never images)
 
 Nothing here is edited in place or deleted. Revising the research text inserts a
@@ -176,14 +177,15 @@ bundle.model_dump(mode="json")   # -> {species_code, probe_set_id, status, is_st
 ```
 
 - `get_species_probes(session, species_code)` — the species' **approved** probe
-  set (with every probe's actions and exemplars), or `None`. `advice` calls this
-  instead of touching the `knowledge` schema.
+  set (with every probe's actions and exemplars), or `None`. `assessment` asks
+  its probes as VLM checks; `advice` builds care plans from its actions.
 - `get_species(session, species_code)` — catalogue row (`SpeciesRead`) or
   `None`. `assessment.assess_frames` uses the scientific name (or the code if
   the species is unregistered).
 - `get_care_knowledge(session, species_code, query_vector=None, *, limit=4, max_chars=2500)`
-  — botanical text for the species, or `None`. `assessment.assess_frames` passes
-  only `session` and `species_code`; missing knowledge becomes `""` with a warning.
+  — free botanical text for the species (chunks, else the active research
+  document), or `None`. **Not used by the pipeline**: that text is not approved,
+  and assessment and advice use only the approved probe set.
 
 ## Internal design
 

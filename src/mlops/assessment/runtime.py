@@ -13,7 +13,7 @@ calling context flattens its own models onto :class:`ProbeInput`.
 
 ```
 Langfuse text prompt (production label) ── config: model, runs, temperature,
-      │  compiled with plant_knowledge                       max_new_tokens
+      │  compiled with the approved checks                   max_new_tokens
       ▼
 backend.generate(text, [previous, current]) × runs
       │
@@ -143,8 +143,6 @@ class ProbeInput:
     plant_id: str
     #: Scientific name, for tracing.
     species: str
-    #: Care knowledge for the species; ``""`` when there is none.
-    plant_knowledge: str
     #: JPEG bytes. The prompt calls this frame Image 1.
     previous_image: bytes
     #: JPEG bytes. The prompt calls this frame Image 2.
@@ -158,11 +156,11 @@ class ProbeInput:
     def as_prompt_variables(self) -> dict[str, str]:
         """The values the Langfuse template is compiled with.
 
-        Keys are exactly :data:`~mlops.assessment.prompts.PROBE_VARIABLES`.
-        Each optional section is the whole block or ``""``, so the template needs
-        no conditional.
+        Keys are exactly :data:`~mlops.assessment.prompts.PROBE_VARIABLES`. The
+        checks section is the whole block or ``""``, so the template needs no
+        conditional. The checks are the only knowledge sent: approved and
+        structured, never free research text.
         """
-        knowledge = self.plant_knowledge.strip()
         checks = ""
         if self.checks:
             lines = [
@@ -172,10 +170,7 @@ class ProbeInput:
             for check in self.checks:
                 lines.extend(check.as_prompt_lines())
             checks = "\n".join(lines)
-        return {
-            "plant_knowledge": f"Plant knowledge:\n{knowledge}" if knowledge else "",
-            "probe_checks": checks,
-        }
+        return {"probe_checks": checks}
 
     def trace_metadata(self) -> dict[str, str]:
         """Searchable trace metadata: ``plant_id`` and, when known, ``run_id``."""
@@ -272,7 +267,7 @@ def run_probe(
     except VLMBackendUnavailableError as error:
         raise AssessmentUnavailableError(str(error)) from error
 
-    text = prompt.compile(**probe.as_prompt_variables())
+    text = prompt.compile(**probe.as_prompt_variables(), **prompts.RETIRED_VARIABLES)
     images = [probe.previous_image, probe.current_image]
     slugs = _asked_slugs(prompt, probe)
 
@@ -306,7 +301,7 @@ def run_probe(
             )
             raise AssessmentRunError(config.runs, len(valid), last_error)
 
-        verdict = aggregate_observations(valid, tuple(slugs))
+        verdict = aggregate_observations(valid, slugs)
         span.update(
             output={
                 "health_status": verdict.health_status,
@@ -320,14 +315,14 @@ def run_probe(
     return replace(verdict, trace_id=trace_id)
 
 
-def _asked_slugs(prompt: Any, probe: ProbeInput) -> frozenset[str]:
-    """The checks this run will actually ask, and so vote on.
+def _asked_slugs(prompt: Any, probe: ProbeInput) -> tuple[str, ...]:
+    """The checks this run will actually ask, and so vote on, in the order asked.
 
     A prompt version without ``{{probe_checks}}`` never shows the checks; voting
     on them would record every one as ``cannot_tell``, so none are recorded.
     """
     if not probe.checks:
-        return frozenset()
+        return ()
     variables = getattr(prompt, "variables", None)
     if variables is not None and "probe_checks" not in variables:
         logger.warning(
@@ -336,8 +331,8 @@ def _asked_slugs(prompt: Any, probe: ProbeInput) -> frozenset[str]:
             getattr(prompt, "version", "?"),
             len(probe.checks),
         )
-        return frozenset()
-    return frozenset(check.slug for check in probe.checks)
+        return ()
+    return tuple(check.slug for check in probe.checks)
 
 
 def _run_once(
@@ -346,7 +341,7 @@ def _run_once(
     text: str,
     images: list[bytes],
     config: ProbeConfig,
-    slugs: frozenset[str],
+    slugs: tuple[str, ...],
     *,
     index: int,
 ) -> RunObservation:
@@ -393,10 +388,10 @@ def _generate(
     return raw
 
 
-def _parse(raw: str, slugs: frozenset[str] = frozenset()) -> RunObservation:
+def _parse(raw: str, slugs: tuple[str, ...] = ()) -> RunObservation:
     run = RunObservation.model_validate(extract_json_object(raw))
     try:
-        run.check_probe_slugs(slugs)
+        run.check_probe_slugs(frozenset(slugs))
     except ValueError as error:
         raise AggregateError(str(error)) from error
     return run

@@ -50,7 +50,11 @@ def get_care_knowledge(
     limit: int = 4,
     max_chars: int = 2500,
 ) -> str | None:
-    """Botanical knowledge text for the species used by Care Advisor RAG."""
+    """Free botanical text for the species (chunks, else the active document).
+
+    Not used by the pipeline: the text is not approved. ``assessment`` and
+    ``advice`` use only the approved probe set (:func:`get_species_probes`).
+    """
     from knowledge.models.chunk import KnowledgeChunk
     from knowledge.models.document import ResearchDocument
 

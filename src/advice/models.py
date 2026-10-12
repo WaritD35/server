@@ -69,6 +69,14 @@ class CarePlanAction(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
     action_type: Mapped[str] = mapped_column(Text, nullable=False, default="other")
+    # The approved ``knowledge.probe_action`` this step was taken from — resolved
+    # through ``knowledge``'s interface, no FK. ``NULL`` only for the generic
+    # inspection step of a plant with no approved actions.
+    approved_action_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    check_slug: Mapped[str | None] = mapped_column(Text)
+    urgency: Mapped[str | None] = mapped_column(Text)
+    expect_typical_hours: Mapped[int | None] = mapped_column(Integer)
+    expect_max_hours: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
