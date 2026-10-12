@@ -23,6 +23,15 @@ def test_bad_config_is_rejected() -> None:
         parse_config({k: v for k, v in RAW_CONFIG.items() if k != "timezone"})
     with pytest.raises(ValueError):
         parse_config({**RAW_CONFIG, "schedule": ["25:00"]})
+    with pytest.raises(ConfigError, match="stale_after_minutes"):
+        parse_config({**RAW_CONFIG, "stale_after_minutes": 0})
+
+
+def test_stale_after_defaults_to_an_hour() -> None:
+    assert parse_config(RAW_CONFIG).stale_after == timedelta(minutes=60)
+    assert parse_config({**RAW_CONFIG, "stale_after_minutes": 90}).stale_after == timedelta(
+        minutes=90
+    )
 
 
 def test_due_slots_within_catch_up(config: OrchestratorConfig) -> None:

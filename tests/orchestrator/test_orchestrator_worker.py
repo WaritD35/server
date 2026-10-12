@@ -70,6 +70,40 @@ def test_a_failing_stage_fails_only_that_run(
     assert fakes.CALLS.count(("assessment", plants[0])) == 1
 
 
+def test_a_run_left_running_by_a_stopped_process_is_failed(
+    run_tick: RunTick, session_factory: sessionmaker[Session], plants: list[uuid.UUID]
+) -> None:
+    now = JST_0705 + timedelta(hours=2)  # past the catch-up window: nothing new queued
+    with session_factory() as session:
+        stale = PipelineRun(
+            plant_id=plants[0],
+            scheduled_for=now - timedelta(hours=5),
+            status="running",
+            current_stage="assessment",
+            started_at=now - timedelta(minutes=61),
+        )
+        live = PipelineRun(
+            plant_id=plants[1],
+            scheduled_for=now - timedelta(hours=5),
+            status="running",
+            current_stage="capture",
+            started_at=now - timedelta(minutes=5),
+        )
+        session.add_all([stale, live])
+        session.commit()
+
+    report = run_tick(now)
+
+    assert report.abandoned == 1
+    stale_run = _run_of(session_factory, plants[0])
+    assert stale_run.status == "failed"
+    assert stale_run.current_stage == "assessment"
+    assert (stale_run.detail or "").startswith("assessment: abandoned")
+    assert stale_run.finished_at is not None
+    # a run another process is still executing is left alone
+    assert _run_of(session_factory, plants[1]).status == "running"
+
+
 def test_skip_ends_the_run(
     run_tick: RunTick, session_factory: sessionmaker[Session], plants: list[uuid.UUID]
 ) -> None:

@@ -123,6 +123,9 @@ class ProbeInput:
     previous_image: bytes
     #: JPEG bytes. The prompt calls this frame Image 2.
     current_image: bytes
+    #: The orchestrator (or debug) run, for tracing only: it goes on the
+    #: Langfuse trace's metadata so a failed ``pipeline_run`` can be found there.
+    run_id: str | None = None
 
     def as_prompt_variables(self) -> dict[str, str]:
         """The values the Langfuse template is compiled with.
@@ -131,6 +134,13 @@ class ProbeInput:
         """
         knowledge = self.plant_knowledge.strip()
         return {"plant_knowledge": f"Plant knowledge:\n{knowledge}" if knowledge else ""}
+
+    def trace_metadata(self) -> dict[str, str]:
+        """Searchable trace metadata: ``plant_id`` and, when known, ``run_id``."""
+        metadata = {"plant_id": self.plant_id}
+        if self.run_id:
+            metadata["run_id"] = self.run_id
+        return metadata
 
 
 @dataclass(frozen=True)
@@ -226,14 +236,14 @@ def run_probe(
     client = get_client(COMPONENT)
     # One trace per frame pair, with each run (and its repair) nested inside it
     # as a generation; `propagate_attributes(prompt=…)` ties those generations
-    # to the prompt version.
+    # to the prompt version, and its metadata makes the trace findable by run.
     with (
         client.start_as_current_observation(
             name="assessment.run_probe",
             as_type="chain",
-            input={"plant_id": probe.plant_id, "species": probe.species},
+            input={**probe.trace_metadata(), "species": probe.species},
         ) as span,
-        propagate_attributes(prompt=prompt),
+        propagate_attributes(prompt=prompt, metadata=probe.trace_metadata()),
     ):
         valid: list[RunObservation] = []
         last_error: Exception | None = None

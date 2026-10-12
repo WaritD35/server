@@ -73,6 +73,7 @@ Re-read on every tick, so edits apply without a restart. Path from the
 | `poll_seconds` | how often the loop wakes up |
 | `timezone`, `schedule` | when runs are queued (wall-clock times in that zone) |
 | `catch_up_minutes` | a slot is still queued this late (e.g. the server was restarting); after that it is skipped |
+| `stale_after_minutes` | a run still `running` this long after it started is marked `failed` (default 60); keep it above the slowest run |
 
 ## Data model
 
@@ -81,7 +82,8 @@ Re-read on every tick, so edits apply without a restart. Path from the
 ```
 queued → running → succeeded
              ├───→ skipped    a stage raised StageSkipped
-             └───→ failed     a stage raised anything else
+             └───→ failed     a stage raised anything else,
+                              or the run was abandoned (see Errors)
 ```
 
 - `UNIQUE (plant_id, scheduled_for)`: a slot is queued once, however many ticks
@@ -93,10 +95,21 @@ queued → running → succeeded
 
 ## Errors (PoC)
 
-Not handled beyond this: a stage that raises marks its run `failed` (the error
-goes to `detail` and the log) and the loop moves on to the next plant. Nothing
-is retried, nothing times out, and a run that was executing when the process
-died stays `running`. Revisit once the stages are real.
+A stage that raises marks its run `failed` (the error goes to `detail` and the
+log, with its traceback) and the loop moves on to the next plant. Nothing is
+retried and a running stage is not timed out.
+
+**Abandoned runs.** A run that was executing when its process stopped would
+otherwise stay `running` forever. Every tick first marks runs still `running`
+`stale_after_minutes` after `started_at` as `failed`, with
+`detail = "<stage>: abandoned — …"`; `current_stage` still says where it
+stopped. This is not done at startup, because with several web processes a
+`running` run may belong to one that is alive.
+
+**Finding a run in Langfuse.** The assessment, advice and companion traces carry
+`run_id` (and `plant_id`) in their metadata, so a failed run's VLM / LLM calls
+can be found in each component's Langfuse project by filtering on
+`metadata.run_id`.
 
 ## HTTP API (`/orchestrator`, superuser only)
 

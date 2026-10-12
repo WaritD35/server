@@ -6,6 +6,7 @@ repair, that a majority of bad runs is raised rather than aggregated, and that
 every way the dependencies can be missing surfaces as one error type.
 """
 
+import dataclasses
 import importlib.util
 import json
 from collections.abc import Iterator
@@ -167,6 +168,27 @@ def test_a_verdict_is_aggregated_from_every_run(
     assert verdict.consensus["runs"] == 3
     assert verdict.trace_id == "trace-123"
     assert len(backend.calls) == 3
+
+
+def test_the_trace_carries_the_run_id(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed ``pipeline_run`` can be found in Langfuse by its id."""
+    use_backend(monkeypatch, FakeBackend(answer()))
+    propagated: list[dict[str, Any]] = []
+
+    @contextmanager
+    def record(**kwargs: Any) -> Iterator[None]:
+        propagated.append(kwargs)
+        yield
+
+    monkeypatch.setattr(runtime, "propagate_attributes", record)
+
+    run_probe(dataclasses.replace(PROBE, run_id="run-9"))
+    run_probe(PROBE)
+
+    assert propagated[0]["metadata"] == {"plant_id": "plant-1", "run_id": "run-9"}
+    assert propagated[1]["metadata"] == {"plant_id": "plant-1"}
 
 
 def test_the_hyper_parameters_and_model_come_from_the_prompt_config(

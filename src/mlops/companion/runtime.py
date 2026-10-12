@@ -105,6 +105,8 @@ def generate_companion_message(
     recent_observations: list[ObservationRead] | None = None,
     milestones: list[MilestoneRead] | None = None,
     *,
+    plant_id: str | None = None,
+    run_id: str | None = None,
     label: str | None = PRODUCTION_LABEL,
     version: int | None = None,
     overrides: dict[str, Any] | None = None,
@@ -112,9 +114,11 @@ def generate_companion_message(
     """Generate a first-person plant persona message via LLM.
 
     Returns the raw generated string or None if generation failed or is unconfigured.
+    ``plant_id`` / ``run_id`` are for tracing only (Langfuse trace metadata).
     ``label`` / ``version`` / ``overrides`` let an experiment pin a prompt version
     and drive this exact function.
     """
+    metadata = {k: v for k, v in (("plant_id", plant_id), ("run_id", run_id)) if v}
     prompt = _resolve_prompt(label, version)
     config = CompanionConfig.from_prompt_config(
         prompt.config if prompt is not None else prompts.BOOTSTRAP_CONFIG,
@@ -133,7 +137,7 @@ def generate_companion_message(
     )
 
     try:
-        return _invoke(messages, config, prompt, plant_nickname).strip()
+        return _invoke(messages, config, prompt, plant_nickname, metadata).strip()
     except Exception as e:
         logger.warning("Companion LLM generation failed or unavailable: %s", e)
         return None
@@ -144,6 +148,7 @@ def _invoke(
     config: CompanionConfig,
     prompt: ChatPromptClient | None,
     plant_nickname: str,
+    metadata: dict[str, str],
 ) -> str:
     """One chat call, traced when the companion project is configured."""
     # Imported here so tests (and the mock pipeline fixtures) can patch it.
@@ -163,14 +168,14 @@ def _invoke(
         "run_name": "speak",
     }
     # One trace per message; `propagate_attributes(prompt=…)` ties the generation
-    # to the prompt version.
+    # to the prompt version, and its metadata makes the trace findable by run.
     with (
         get_client(COMPONENT).start_as_current_observation(
             name="companion.generate_companion_message",
             as_type="chain",
-            input={"plant_nickname": plant_nickname},
+            input={**metadata, "plant_nickname": plant_nickname},
         ) as span,
-        propagate_attributes(prompt=prompt),
+        propagate_attributes(prompt=prompt, metadata=metadata or None),
     ):
         text = chain.invoke(chat, config=invoke_config)
         span.update(output=text)

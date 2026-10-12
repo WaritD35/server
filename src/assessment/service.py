@@ -407,6 +407,7 @@ def assess_frames(
             plant_knowledge=knowledge,
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
+            run_id=str(run_id),
         )
     )
     health_status = HealthStatus(verdict.health_status)

@@ -19,3 +19,8 @@ schedule = ["07:00", "12:00", "17:00"]
 # A slot is still queued this long after its time (e.g. the server was
 # restarting at 07:00). Past this window the slot is skipped.
 catch_up_minutes = 60
+
+# A run still `running` this long after it started is assumed to belong to a
+# process that stopped, and is marked `failed`. Keep it well above the slowest
+# run (VLM_PROVIDER=local on CPU can take minutes per plant).
+stale_after_minutes = 60

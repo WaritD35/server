@@ -63,6 +63,9 @@ def _nullcontext() -> Any:
     yield
 
 
+PROPAGATED: list[dict[str, Any]] = []
+
+
 def _langfuse_configured(monkeypatch: pytest.MonkeyPatch, fetch: Any) -> None:
     span = MagicMock(trace_id="trace-1")
 
@@ -70,13 +73,26 @@ def _langfuse_configured(monkeypatch: pytest.MonkeyPatch, fetch: Any) -> None:
     def observation(**_: Any) -> Any:
         yield span
 
+    def propagate(**kwargs: Any) -> Any:
+        PROPAGATED.append(kwargs)
+        return _nullcontext()
+
+    PROPAGATED.clear()
     client = MagicMock()
     client.start_as_current_observation.side_effect = observation
     monkeypatch.setattr(runtime, "is_configured", lambda _c: True)
     monkeypatch.setattr(runtime, "get_client", lambda _c: client)
     monkeypatch.setattr(runtime, "get_callback_handler", lambda _c: MagicMock())
-    monkeypatch.setattr(runtime, "propagate_attributes", lambda **_: _nullcontext())
+    monkeypatch.setattr(runtime, "propagate_attributes", propagate)
     monkeypatch.setattr(runtime.prompts, "get", fetch)
+
+
+def test_the_trace_carries_the_run_id(model: FakeModel, monkeypatch: pytest.MonkeyPatch) -> None:
+    _langfuse_configured(monkeypatch, lambda *_, **__: FakePrompt({}))
+
+    generate_companion_message("Monty", "Dry.", ACTIONS, plant_id="p1", run_id="run-9")
+
+    assert PROPAGATED[0]["metadata"] == {"plant_id": "p1", "run_id": "run-9"}
 
 
 def test_bootstrap_prompt_when_langfuse_is_not_configured(

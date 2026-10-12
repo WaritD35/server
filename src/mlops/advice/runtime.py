@@ -77,6 +77,15 @@ class AdviceInput:
     knowledge_context: str | None = None
     trigger_reason: str | None = None
     confidence_agreement: float | None = None
+    #: The orchestrator run, for tracing only (Langfuse trace metadata).
+    run_id: str | None = None
+
+    def trace_metadata(self) -> dict[str, str]:
+        """Searchable trace metadata: ``plant_id`` and, when known, ``run_id``."""
+        metadata = {"plant_id": self.plant_id}
+        if self.run_id:
+            metadata["run_id"] = self.run_id
+        return metadata
 
     def as_prompt_variables(self) -> dict[str, str]:
         """The values the Langfuse template is compiled with.
@@ -260,14 +269,15 @@ def _invoke(
         "run_name": "diagnose",
     }
     # One trace per plan; `propagate_attributes(prompt=…)` ties the generation to
-    # the prompt version, so the Langfuse UI shows each version's real use.
+    # the prompt version, so the Langfuse UI shows each version's real use, and
+    # its metadata makes the trace findable by run.
     with (
         get_client(COMPONENT).start_as_current_observation(
             name="advice.generate_advice",
             as_type="chain",
-            input={"plant_id": payload.plant_id, "health_status": payload.health_status},
+            input={**payload.trace_metadata(), "health_status": payload.health_status},
         ) as span,
-        propagate_attributes(prompt=prompt),
+        propagate_attributes(prompt=prompt, metadata=payload.trace_metadata()),
     ):
         output = GeneratedCarePlan.model_validate(structured.invoke(chat, config=invoke_config))
         span.update(output={"status_label": output.status_label, "actions": len(output.actions)})

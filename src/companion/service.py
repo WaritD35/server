@@ -119,6 +119,8 @@ def generate_for_plant(
                 health_status=health_status,
                 recent_observations=recent_obs,
                 milestones=milestones,
+                plant_id=str(plant_id),
+                run_id=str(run_id),
             )
 
             if llm_text:

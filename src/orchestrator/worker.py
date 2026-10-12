@@ -2,8 +2,10 @@
 
 One :func:`tick` is a complete pass:
 
-1. **queue** — every live plant gets a run for each schedule slot that is due;
-2. **work** — take queued runs one at a time and call their stages in order.
+1. **reap** — a run left ``running`` past ``stale_after`` (its process stopped
+   mid-stage) is marked ``failed``;
+2. **queue** — every live plant gets a run for each schedule slot that is due;
+3. **work** — take queued runs one at a time and call their stages in order.
 
 :class:`OrchestratorLoop` calls :func:`tick` every ``poll_seconds`` in a
 background thread; ``main_web`` starts it.
@@ -40,6 +42,8 @@ def _live_plant_ids(session: Session) -> Sequence[uuid.UUID]:
 
 @dataclass
 class TickReport:
+    #: Runs left ``running`` by a stopped process, now marked ``failed``.
+    abandoned: int = 0
     queued: int = 0
     finished: dict[str, int] = field(default_factory=dict)
 
@@ -86,6 +90,7 @@ def tick(
 ) -> TickReport:
     report = TickReport()
     with session_factory() as session:
+        report.abandoned = service.fail_stale_runs(session, now(), config.stale_after)
         report.queued = service.enqueue_due(
             session, config, now(), plant_ids(session), stages=stages
         )
@@ -132,6 +137,6 @@ class OrchestratorLoop:
             config = self._config_loader()
             if config.enabled:
                 report = tick(self._session_factory, config, should_stop=self._stop.is_set)
-                if report.queued or report.finished:
+                if report.abandoned or report.queued or report.finished:
                     logger.info("orchestrator tick: %s", report)
             self._stop.wait(config.poll_interval.total_seconds())

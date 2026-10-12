@@ -145,6 +145,29 @@ def finish_run(
     session.commit()
 
 
+def fail_stale_runs(session: Session, now: datetime, stale_after: timedelta) -> int:
+    """Mark runs still ``running`` ``stale_after`` past their start as ``failed``.
+
+    A run only stays ``running`` when the process executing it stopped
+    mid-stage; nothing else would ever finish it. Returns how many were marked.
+    """
+    stale = session.scalars(
+        select(PipelineRun).where(
+            PipelineRun.status == "running", PipelineRun.started_at < now - stale_after
+        )
+    ).all()
+    minutes = int(stale_after.total_seconds() // 60)
+    for run in stale:
+        run.status = "failed"
+        run.finished_at = now
+        run.detail = (
+            f"{run.current_stage}: abandoned — still running {minutes} min after it "
+            "started (the process executing it probably stopped)"
+        )
+    session.commit()
+    return len(stale)
+
+
 # --------------------------------------------------------------------------- #
 # reads
 # --------------------------------------------------------------------------- #

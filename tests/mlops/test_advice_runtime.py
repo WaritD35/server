@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from contextlib import contextmanager
 from typing import Any
@@ -70,6 +71,9 @@ def model(monkeypatch: pytest.MonkeyPatch) -> FakeModel:
     return fake
 
 
+PROPAGATED: list[dict[str, Any]] = []
+
+
 def _langfuse_configured(monkeypatch: pytest.MonkeyPatch, prompt: Any) -> MagicMock:
     span = MagicMock(trace_id="trace-1")
 
@@ -77,12 +81,17 @@ def _langfuse_configured(monkeypatch: pytest.MonkeyPatch, prompt: Any) -> MagicM
     def observation(**_: Any) -> Any:
         yield span
 
+    def propagate(**kwargs: Any) -> Any:
+        PROPAGATED.append(kwargs)
+        return _nullcontext()
+
+    PROPAGATED.clear()
     client = MagicMock()
     client.start_as_current_observation.side_effect = observation
     monkeypatch.setattr(runtime, "is_configured", lambda _c: True)
     monkeypatch.setattr(runtime, "get_client", lambda _c: client)
     monkeypatch.setattr(runtime, "get_callback_handler", lambda _c: MagicMock())
-    monkeypatch.setattr(runtime, "propagate_attributes", lambda **_: _nullcontext())
+    monkeypatch.setattr(runtime, "propagate_attributes", propagate)
     monkeypatch.setattr(runtime.prompts, "get", prompt)
     return client
 
@@ -138,6 +147,16 @@ def test_runs_the_production_prompt_and_its_config(
     assert model.sent[0][0][1].startswith("LANGFUSE ")
     assert result.prompt_version == 7
     assert result.trace_id == "trace-1"
+
+
+def test_the_trace_carries_the_run_id(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _langfuse_configured(monkeypatch, lambda *_, **__: FakePrompt({}))
+
+    generate_advice(dataclasses.replace(PAYLOAD, run_id="run-9"))
+
+    assert PROPAGATED[0]["metadata"] == {"plant_id": "p1", "run_id": "run-9"}
 
 
 def test_falls_back_to_the_bootstrap_prompt_when_the_fetch_fails(

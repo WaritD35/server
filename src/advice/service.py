@@ -52,6 +52,7 @@ def generate_for_plant(
         knowledge_context=knowledge_context,
         trigger_reason=trigger.reasoning,
         confidence_agreement=trigger.confidence,
+        run_id=str(run_id),
     )
 
     result = generate_advice(payload)

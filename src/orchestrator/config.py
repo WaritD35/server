@@ -26,20 +26,27 @@ class OrchestratorConfig:
     timezone: ZoneInfo
     schedule: tuple[time, ...]
     catch_up: timedelta
+    #: A run still ``running`` this long after it started is taken to belong to
+    #: a process that stopped, and is marked ``failed``.
+    stale_after: timedelta = timedelta(minutes=60)
 
 
 def parse_config(raw: dict[str, Any]) -> OrchestratorConfig:
     """Validate a parsed TOML document. Split out so tests can pass a dict."""
     try:
-        return OrchestratorConfig(
+        config = OrchestratorConfig(
             enabled=bool(raw.get("enabled", True)),
             poll_interval=timedelta(seconds=raw.get("poll_seconds", 30)),
             timezone=ZoneInfo(raw["timezone"]),
             schedule=tuple(sorted(time.fromisoformat(t) for t in raw["schedule"])),
             catch_up=timedelta(minutes=raw.get("catch_up_minutes", 60)),
+            stale_after=timedelta(minutes=raw.get("stale_after_minutes", 60)),
         )
     except KeyError as exc:
         raise ConfigError(f"missing required key {exc}") from None
+    if config.stale_after <= timedelta(0):
+        raise ConfigError("stale_after_minutes must be positive")
+    return config
 
 
 def load_config(path: str | Path | None = None) -> OrchestratorConfig:
