@@ -167,7 +167,7 @@
   - `completed_at`: `TIMESTAMPTZ` (default UTC now, not null)
 
 ### 2.9 `vision` Schema (owned by `capture`)
-- **`vision.capture`** — one webcam grab (stored whether or not it passed quality):
+- **`vision.capture`** — one photo uploaded by a planter device (stored whether or not it passed quality; `run_id` set when a run claims it):
   - `id`: `UUID` (PK, default `uuid.uuid4`)
   - `plant_id`: `UUID` (not null, indexed with `captured_at`) — logical reference to `registry.plant.id`
   - `run_id`: `UUID` (nullable) — logical reference to `orchestrator.pipeline_run.id`; NULL for debug captures
@@ -250,7 +250,7 @@
 
 ```mermaid
 flowchart TD
-    Start([Scheduled Pipeline Run]) --> Capture[1. Capture Stage\nwebcam via CAPTURE_WEBCAM_MAP]
+    Start([Scheduled Pipeline Run]) --> Capture[1. Capture Stage\nclaim newest uploaded photo]
     Capture -->|empty map / unmapped / busy / quality fail| CapSkip([Run Skipped])
     Capture -->|quality passed| Assessment[2. Assessment Stage\nVLM probe then 0-token rules]
     Assessment -->|species unset / baseline only| AssessSkip([Run Skipped])
@@ -272,7 +272,7 @@ flowchart TD
 
 ### Pipeline invariants (capture & assessment)
 
-- **Capture skip:** empty `CAPTURE_WEBCAM_MAP`, unmapped `device_id`, `CaptureBusy`, or a failed quality check → `StageSkipped` (quality-fail still stores `vision.capture`). Webcam / MinIO failure (`CaptureDeviceError`) fails the run.
+- **Capture skip:** no photo captured since the previous run's frame (no upload, or only uploads that failed the quality gate) → `StageSkipped`. Planter devices upload with `POST /capture/devices/me/frames`; the quality check and crop run on upload, and a failed photo is still stored in `vision.capture` with its reasons.
 - **Assessment calls VLM then rules:** `assess_frames` runs `mlops.assessment.run_probe` and writes one observation; `evaluate_observation` then applies the 0-token Event Engine.
 - **Assessment skip:** `species_code` unset (`"species not set"`) or fewer than two processed frames (`"baseline frame stored; need two frames"`) → `StageSkipped`. Majority-invalid VLM output or unavailable Langfuse/VLM fails the run.
 

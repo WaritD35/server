@@ -34,10 +34,11 @@ flow.
 ### The assessment pipeline
 
 ```
-server webcam (CAPTURE_WEBCAM_MAP) ──▶ orchestrator ──▶ capture (vision)
-        (edge upload still planned)                         │
-        registry ──plant identity───────────────────────────▶│
-        knowledge ──species + care text─────────────────────▶ assessment (VLM probe, then 0-token rules)
+planter ──POST /capture/devices/me/frames──▶ capture (vision: quality check, crop)
+                                                    │  claimed by the next run
+        orchestrator ──────────────────────────────▶│
+        registry ──plant identity / device──────────▶│
+        knowledge ──approved probes──────────────────▶ assessment (VLM probe, then 0-token rules)
         capture  ──aligned frame pair───────────────────────▶│
                                                               │
                                 internal state & verdicts ────▶ advice (LLM)
@@ -52,7 +53,7 @@ server webcam (CAPTURE_WEBCAM_MAP) ──▶ orchestrator ──▶ capture (vis
 | # | Context | Package | Role | Owns (Postgres schema) | Owns (MinIO) |
 |---|---------|---------|------|------------------------|--------------|
 | 1 | Plant Registry | `src/registry` | Identity & physical anchoring — plants, owners, species assignment, camera placement | `registry` | — |
-| 2 | Capture & Vision | `src/capture` | Visual data extraction — server-side webcam (`CAPTURE_WEBCAM_MAP`; edge upload still planned), quality-check, preprocess, align frames | `vision` | `captures`, `frames-derived` |
+| 2 | Capture & Vision | `src/capture` | Visual data extraction — photos uploaded by planter devices (`POST /capture/devices/me/frames`), quality-check, preprocess, align frames | `vision` | `captures`, `frames-derived` |
 | 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species), versioned probe bundles | `knowledge` | `exemplars` |
 | 4 | Assessment | `src/assessment` | Internal-state inference — run probes on the VLM, aggregate N runs into verdict + severity + evidence + agreement | `assessment` | — |
 | 5 | Care Advice | `src/advice` | Interpretable reasoning — turn verdicts + history into a diagnosis, ranked actions, rationale and citations (external LLM, retrieval-grounded) | `advice` | — |
@@ -290,7 +291,6 @@ Relevant environment variables (full list in `.env.example`):
 | `VLM_PROVIDER` | `vllm` (default) or `local` |
 | `VLM_API_BASE` / `VLM_API_KEY` | OpenAI-compatible vLLM endpoint |
 | `VLM_LOCAL_MODEL_PATH` | Weights for `local` (default `models/internvl3_5-2b`) |
-| `CAPTURE_WEBCAM_MAP` | `device_id=webcam_index,...`; empty (default) = no capture |
 
 ---
 

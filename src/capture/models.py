@@ -14,7 +14,10 @@ from capture.db import VISION_SCHEMA, Base, utcnow
 
 
 class Capture(Base):
-    """One webcam grab, stored whether or not it passed the quality gate."""
+    """One photo uploaded by a planter, stored whether or not it passed the quality gate.
+
+    ``run_id`` stays ``NULL`` until the capture stage claims the photo.
+    """
 
     __tablename__ = "capture"
     __table_args__ = (

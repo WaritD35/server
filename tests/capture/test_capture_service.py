@@ -1,25 +1,27 @@
-"""``capture_for_plant`` with a fake webcam and a fake MinIO."""
+"""``ingest_frame`` (device uploads) and ``claim_frame`` (the capture stage), with a fake MinIO."""
 
 import uuid
-from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from capture_fakes import FakeStorage, FakeWebcam, checkerboard, dark_image
+from capture_fakes import FakeStorage, dark_jpeg, no_plant_jpeg, plant_jpeg
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from capture import service
 from capture.models import Capture, ProcessedFrame
 from capture.service import (
-    CaptureBusy,
     CaptureDeviceError,
-    CaptureUnavailable,
-    capture_for_plant,
+    InvalidUpload,
+    claim_frame,
+    ingest_frame,
+    list_frames,
 )
 from capture.vision.codec import decode_image
 from core.storage import bucket_names
 
 BUCKETS = bucket_names()
+T0 = datetime(2026, 10, 11, 7, 0, tzinfo=UTC)
 
 
 def _captures(session: Session) -> list[Capture]:
@@ -30,162 +32,194 @@ def _frames(session: Session) -> list[ProcessedFrame]:
     return list(session.scalars(select(ProcessedFrame).order_by(ProcessedFrame.processed_at)))
 
 
-def test_passing_capture_stores_raw_and_processed(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+def _upload(session: Session, plant_id: uuid.UUID, minutes: int, jpeg: bytes | None = None):
+    return ingest_frame(
+        session,
+        plant_id,
+        device_id="cam-1",
+        jpeg=jpeg if jpeg is not None else plant_jpeg(),
+        captured_at=T0 + timedelta(minutes=minutes),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# ingest
+# --------------------------------------------------------------------------- #
+
+
+def test_a_good_photo_is_stored_raw_and_processed_without_a_run(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
-    run_id = uuid.uuid4()
-    result = capture_for_plant(session, plant_id, run_id)
+    jpeg = plant_jpeg()
+    result = _upload(session, plant_id, 0, jpeg)
 
     assert result.quality_passed is True
     assert result.quality_reason is None
-    assert webcam.calls[0].camera_index == 0
 
     [capture] = _captures(session)
     [frame] = _frames(session)
-    assert capture.id == result.capture.id
-    assert (capture.plant_id, capture.run_id, capture.device_id) == (plant_id, run_id, "cam-1")
+    assert (capture.plant_id, capture.run_id, capture.device_id) == (plant_id, None, "cam-1")
+    assert capture.captured_at.replace(tzinfo=UTC) == T0
     assert (capture.width, capture.height) == (1280, 720)
     assert capture.brightness is not None and capture.blur_score is not None
     assert capture.raw_object_key == f"{plant_id}/2026/10/11/{capture.id}.jpg"
 
-    assert frame.id == result.processed_frame.id  # type: ignore[union-attr]
-    assert (frame.capture_id, frame.plant_id, frame.run_id) == (capture.id, plant_id, run_id)
+    assert (frame.capture_id, frame.plant_id, frame.run_id) == (capture.id, plant_id, None)
     assert frame.crop_type == "whole_plant"
     assert frame.object_key == f"{plant_id}/2026/10/11/{frame.id}_whole_plant.jpg"
     assert frame.aligned_to_frame_id is None
 
-    assert storage.keys(BUCKETS["captures"]) == [capture.raw_object_key]
-    assert storage.keys(BUCKETS["frames_derived"]) == [frame.object_key]
-    raw = decode_image(storage.objects[(BUCKETS["captures"], capture.raw_object_key)])
+    # The raw object is exactly what the device sent.
+    assert storage.objects[(BUCKETS["captures"], capture.raw_object_key)] == jpeg
     processed = decode_image(storage.objects[(BUCKETS["frames_derived"], frame.object_key)])
-    assert raw.shape == (720, 1280, 3)
-    assert processed.shape == (frame.height, frame.width, 3)
-    assert set(storage.content_types.values()) == {"image/jpeg"}
+    assert processed.shape[0] < 720 and processed.shape[1] < 1280
+    assert storage.content_types[(BUCKETS["frames_derived"], frame.object_key)] == "image/jpeg"
 
 
-def test_next_frame_is_aligned_to_the_previous_one(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+def test_a_dark_photo_is_kept_with_its_reasons_but_not_processed(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
-    first = capture_for_plant(session, plant_id)
-    second = capture_for_plant(session, plant_id)
-
-    assert first.processed_frame is not None and second.processed_frame is not None
-    assert second.processed_frame.aligned_to_frame_id == first.processed_frame.id
-    assert second.capture.run_id is None
-
-
-def test_quality_failure_keeps_only_the_capture_row(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
-) -> None:
-    webcam.image = dark_image()
-    result = capture_for_plant(session, plant_id)
+    result = _upload(session, plant_id, 0, dark_jpeg())
 
     assert result.quality_passed is False
+    assert "image_too_dark" in (result.quality_reason or "")
     assert result.processed_frame is None
-    [capture] = _captures(session)
-    assert capture.quality_passed is False
-    assert capture.quality_reason == "image_too_dark,image_too_blurry"
+    assert len(_captures(session)) == 1
     assert _frames(session) == []
-    assert storage.keys(BUCKETS["captures"]) == [capture.raw_object_key]
     assert storage.keys(BUCKETS["frames_derived"]) == []
 
 
-def test_no_plant_in_frame_counts_as_quality_failure(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+def test_no_plant_in_frame_counts_as_a_quality_failure(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
-    webcam.image = checkerboard()
-    result = capture_for_plant(session, plant_id)
+    result = _upload(session, plant_id, 0, no_plant_jpeg())
 
     assert result.quality_passed is False
     assert result.quality_reason == "plant_not_detected"
-    assert _frames(session) == []
+
+
+def test_captured_at_defaults_to_receipt_time(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
+) -> None:
+    before = datetime.now(UTC)
+    result = ingest_frame(session, plant_id, device_id="cam-1", jpeg=plant_jpeg())
+
+    assert result.capture.captured_at.replace(tzinfo=UTC) >= before - timedelta(seconds=1)
 
 
 @pytest.mark.parametrize(
-    ("webcam_map", "device_id", "message"),
+    ("jpeg", "captured_at", "message"),
     [
-        ("", "cam-1", "CAPTURE_WEBCAM_MAP is empty"),
-        ("cam-2=1", "cam-1", "not in CAPTURE_WEBCAM_MAP"),
-        ("cam-1=0", None, "no device_id"),
+        (b"\x89PNG\r\n\x1a\n not a jpeg", None, "not a JPEG"),
+        (b"\xff\xd8\xff garbage", None, "could not be decoded"),
+        (None, datetime.now(UTC) + timedelta(hours=1), "future"),
     ],
+    ids=["png", "corrupt-jpeg", "future-captured-at"],
 )
-def test_unavailable_when_device_cannot_be_captured(
-    session: Session,
-    add_plant: Callable[..., uuid.UUID],
-    set_webcam_map: Callable[[str], None],
-    webcam: FakeWebcam,
-    storage: FakeStorage,
-    webcam_map: str,
-    device_id: str | None,
-    message: str,
-) -> None:
-    set_webcam_map(webcam_map)
-    plant_id = add_plant(device_id)
-
-    with pytest.raises(CaptureUnavailable, match=message):
-        capture_for_plant(session, plant_id)
-    assert webcam.calls == []
-    assert _captures(session) == []
-
-
-def test_unavailable_for_unknown_or_archived_plant(
-    session: Session,
-    add_plant: Callable[..., uuid.UUID],
-    webcam: FakeWebcam,
-    storage: FakeStorage,
-) -> None:
-    with pytest.raises(CaptureUnavailable, match="not found or archived"):
-        capture_for_plant(session, uuid.uuid4())
-    with pytest.raises(CaptureUnavailable, match="not found or archived"):
-        capture_for_plant(session, add_plant(archived=True))
-    assert webcam.calls == []
-
-
-def test_busy_while_another_capture_holds_the_device(
+def test_unusable_uploads_are_rejected_and_nothing_is_stored(
     session: Session,
     plant_id: uuid.UUID,
-    add_plant: Callable[..., uuid.UUID],
-    webcam: FakeWebcam,
     storage: FakeStorage,
+    jpeg: bytes | None,
+    captured_at: datetime | None,
+    message: str,
 ) -> None:
-    other_plant = add_plant("cam-2")
-    with service._device_lock("cam-1"):
-        with pytest.raises(CaptureBusy, match="busy"):
-            capture_for_plant(session, plant_id)
-        assert webcam.calls == []
-        # the lock is per device: another webcam is unaffected
-        assert capture_for_plant(session, other_plant).quality_passed is True
+    with pytest.raises(InvalidUpload, match=message):
+        ingest_frame(
+            session,
+            plant_id,
+            device_id="cam-1",
+            jpeg=jpeg if jpeg is not None else plant_jpeg(),
+            captured_at=captured_at,
+        )
 
-    assert capture_for_plant(session, plant_id).quality_passed is True
+    assert _captures(session) == []
+    assert storage.objects == {}
 
 
-def test_webcam_failure_raises_device_error_and_frees_the_lock(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+def test_an_oversized_upload_is_rejected(
+    session: Session,
+    plant_id: uuid.UUID,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    webcam.fail()
-    with pytest.raises(CaptureDeviceError, match="Could not open webcam"):
-        capture_for_plant(session, plant_id)
+    monkeypatch.setattr(service, "MAX_UPLOAD_BYTES", 100)
+
+    with pytest.raises(InvalidUpload, match="limit"):
+        _upload(session, plant_id, 0)
+
     assert _captures(session) == []
 
-    webcam.error = None
-    assert capture_for_plant(session, plant_id).quality_passed is True
 
-
-def test_storage_failure_raises_device_error_and_stores_nothing(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+def test_storage_failure_raises_and_stores_nothing(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
     storage.down = True
+
     with pytest.raises(CaptureDeviceError, match="Could not upload"):
-        capture_for_plant(session, plant_id)
+        _upload(session, plant_id, 0)
+
     session.rollback()
     assert _captures(session) == []
-    assert _frames(session) == []
+
+
+# --------------------------------------------------------------------------- #
+# claim (the capture stage)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_newest_upload_since_the_last_run_is_claimed(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
+) -> None:
+    _upload(session, plant_id, 0)
+    newest = _upload(session, plant_id, 30).processed_frame
+    _upload(session, plant_id, 10)  # arrives late, but was taken earlier
+    run_id = uuid.uuid4()
+
+    claimed = claim_frame(session, plant_id, run_id)
+
+    assert claimed is not None and newest is not None
+    assert claimed.id == newest.id
+    assert claimed.run_id == run_id
+    assert claimed.aligned_to_frame_id is None  # the plant's first run
+    capture = session.get(Capture, claimed.capture_id)
+    assert capture is not None and capture.run_id == run_id
+
+
+def test_a_later_run_claims_only_newer_photos_and_aligns_to_the_last_run(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
+) -> None:
+    first = _upload(session, plant_id, 0).processed_frame
+    assert first is not None
+    claim_frame(session, plant_id, uuid.uuid4())
+
+    _upload(session, plant_id, -10)  # older than the last claimed photo
+    assert claim_frame(session, plant_id, uuid.uuid4()) is None
+
+    newer = _upload(session, plant_id, 60).processed_frame
+    claimed = claim_frame(session, plant_id, uuid.uuid4())
+
+    assert claimed is not None and newer is not None
+    assert claimed.id == newer.id
+    assert claimed.aligned_to_frame_id == first.id
+
+
+def test_nothing_to_claim_without_a_passing_upload(
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
+) -> None:
+    assert claim_frame(session, plant_id, uuid.uuid4()) is None
+
+    _upload(session, plant_id, 0, dark_jpeg())
+    assert claim_frame(session, plant_id, uuid.uuid4()) is None
 
 
 def test_list_frames_newest_first_with_limit(
-    session: Session, plant_id: uuid.UUID, webcam: FakeWebcam, storage: FakeStorage
+    session: Session, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
-    ids = [capture_for_plant(session, plant_id).processed_frame.id for _ in range(3)]  # type: ignore[union-attr]
+    for minutes in (0, 10, 20):
+        _upload(session, plant_id, minutes)
 
-    assert [f.id for f in service.list_frames(session, plant_id, 2)] == ids[::-1][:2]
-    assert service.list_frames(session, uuid.uuid4(), 10) == []
+    frames = list_frames(session, plant_id, limit=2)
+
+    assert len(frames) == 2
+    assert frames[0].processed_at >= frames[1].processed_at

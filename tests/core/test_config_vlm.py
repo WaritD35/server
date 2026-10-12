@@ -21,10 +21,6 @@ def test_vlm_defaults(settings: Settings) -> None:
     assert settings.vlm_local_model_path == "models/internvl3_5-2b"
 
 
-def test_capture_disabled_by_default(settings: Settings) -> None:
-    assert settings.capture_webcam_map == ""
-
-
 def test_no_vlm_model_setting(settings: Settings) -> None:
     assert not hasattr(settings, "vlm_model")
     assert "vlm_model" not in Settings.model_fields

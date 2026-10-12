@@ -1,15 +1,12 @@
-"""Synthetic images, a fake webcam and a fake MinIO for the ``capture`` tests."""
+"""Synthetic images and a fake MinIO for the ``capture`` tests."""
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
 from urllib3.exceptions import MaxRetryError
 
-from capture.camera.config import CameraConfig
-from capture.camera.webcam import CapturedImage, WebcamError, to_captured_image
-from capture.vision.codec import Image
+from capture.vision.codec import Image, encode_jpeg
 
 #: Where :func:`plant_image` paints the plant: rows 200–520, columns 480–800.
 PLANT_BOX = (480, 200, 320, 320)
@@ -36,28 +33,19 @@ def dark_image(height: int = 720, width: int = 1280) -> Image:
     return np.full((height, width, 3), 10, dtype=np.uint8)
 
 
-@dataclass
-class FakeWebcam:
-    """Stands in for :func:`capture.camera.webcam.capture_once`."""
+def plant_jpeg() -> bytes:
+    """What a planter uploads when the photo is good."""
+    return encode_jpeg(plant_image())
 
-    image: Image = field(default_factory=plant_image)
-    error: Exception | None = None
-    calls: list[CameraConfig] = field(default_factory=list)
-    start: datetime = datetime(2026, 10, 11, 7, 5, tzinfo=UTC)
 
-    def __call__(self, config: CameraConfig) -> CapturedImage:
-        self.calls.append(config)
-        if self.error is not None:
-            raise self.error
-        assert config.camera_index is not None
-        return to_captured_image(
-            self.image,
-            camera_index=config.camera_index,
-            captured_at=self.start + timedelta(minutes=len(self.calls)),
-        )
+def no_plant_jpeg() -> bytes:
+    """Sharp and well lit, but nothing green in frame."""
+    return encode_jpeg(checkerboard())
 
-    def fail(self, message: str = "Could not open webcam at index 0.") -> None:
-        self.error = WebcamError(message)
+
+def dark_jpeg() -> bytes:
+    """Fails the quality gate."""
+    return encode_jpeg(dark_image())
 
 
 class _Response:

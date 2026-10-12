@@ -33,7 +33,8 @@ Capture and assessment already do:
 
 ```python
 def run_capture(payload: StageInput) -> None:
-    result = capture_for_plant(session, payload.plant_id, payload.run_id)
+    if claim_frame(session, payload.plant_id, payload.run_id) is None:
+        raise StageSkipped("no new photo uploaded since the previous run")
 
 def run_assessment(payload: StageInput) -> None:
     assess_frames(session, payload.plant_id, payload.run_id, frames_run_id=payload.run_id)
@@ -49,10 +50,11 @@ def run_assessment(payload: StageInput) -> None:
 Every stage imports from the context's package (`from capture import …`), never
 from its `service` / `models` modules.
 
-- `run_capture` calls `capture.capture_for_plant`. Raises `StageSkipped`
-  when `CAPTURE_WEBCAM_MAP` is empty, the device is unmapped, the webcam is
-  busy, or the quality check fails (the `vision.capture` row is still stored).
-  `CaptureDeviceError` (webcam / MinIO) is not skipped — the run **fails**.
+- `run_capture` calls `capture.claim_frame`. Planter devices upload photos on
+  their own schedule (`POST /capture/devices/me/frames`), and the quality check
+  and crop happen on upload; the stage ties the newest photo captured since the
+  previous run's to this run. Raises `StageSkipped` when nothing new arrived
+  (no upload, or only photos that failed quality).
 - `run_assessment` calls `assessment.assess_frames` (VLM probe, with
   `frames_run_id=run_id`) then `evaluate_observation` (0-token rules). Raises
   `StageSkipped` when species is unset or fewer than two processed frames exist

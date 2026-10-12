@@ -1,20 +1,22 @@
-"""Webcam capture and frame queries for the ``capture`` context.
+"""Frame ingest from planter devices, and frame queries, for the ``capture`` context.
 
-No HTTP concerns here. A capture grabs one frame from the webcam mapped to the
-plant's ``device_id`` (``CAPTURE_WEBCAM_MAP``), quality-checks it and, if it
-passes, crops the plant and records which earlier frame it is aligned to. Image
+No HTTP concerns here. A planter photographs its plant and uploads the JPEG;
+:func:`ingest_frame` quality-checks it and, if it passes, crops the plant. Image
 bytes go to MinIO (raw → ``captures``, processed → ``frames-derived``); nothing
 is written to local disk. Object keys are generated here, never taken from a
 caller.
+
+Uploads arrive whenever the device sends them. The pipeline's capture stage
+then **claims** the newest frame uploaded since the previous run
+(:func:`claim_frame`); that frame and the previous run's frame are the pair
+``assessment`` compares.
 """
 
 import io
-import threading
 import uuid
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from minio import Minio
 from minio.error import MinioException
@@ -22,30 +24,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from urllib3.exceptions import HTTPError
 
-from capture.camera.config import CameraConfig, parse_webcam_map
-from capture.camera.webcam import WebcamError, capture_once
 from capture.db import utcnow
 from capture.models import Capture, ProcessedFrame
-from capture.vision.codec import encode_jpeg
+from capture.vision.codec import ImageCodecError, decode_image, encode_jpeg
 from capture.vision.preprocess import PreprocessConfig, PreprocessError, preprocess_image
 from capture.vision.quality import QualityConfig, assess_image_quality
-from core.config import get_settings
 from core.storage import bucket_names, get_minio_client
-from registry.interface import get_plant
 
 _STORAGE_ERRORS = (MinioException, HTTPError)
 
+#: Largest upload accepted, in bytes.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
-class CaptureUnavailable(Exception):  # noqa: N818 - reads as an outcome, not an error
-    """Raised when the plant cannot be captured here (no device, or device unmapped)."""
+#: How far ahead of the server clock a device's ``captured_at`` may be.
+CLOCK_SKEW = timedelta(minutes=5)
+
+_JPEG_MAGIC = b"\xff\xd8\xff"
 
 
-class CaptureBusy(Exception):  # noqa: N818 - reads as an outcome, not an error
-    """Raised when another capture already holds the plant's webcam."""
+class InvalidUpload(ValueError):  # noqa: N818 - reads as an outcome, not an error
+    """The upload is not a usable JPEG, is too large, or is dated in the future."""
 
 
 class CaptureDeviceError(RuntimeError):
-    """Raised when the webcam fails to open/read or object storage fails."""
+    """Raised when object storage fails (storing an upload or reading a frame)."""
 
 
 @dataclass(frozen=True)
@@ -61,22 +63,6 @@ class CaptureResult:
     @property
     def quality_reason(self) -> str | None:
         return self.capture.quality_reason
-
-
-_device_locks: dict[str, threading.Lock] = {}
-_device_locks_guard = threading.Lock()
-
-
-@contextmanager
-def _device_lock(device_id: str) -> Iterator[None]:
-    with _device_locks_guard:
-        lock = _device_locks.setdefault(device_id, threading.Lock())
-    if not lock.acquire(blocking=False):
-        raise CaptureBusy(f"Webcam for device {device_id!r} is busy")
-    try:
-        yield
-    finally:
-        lock.release()
 
 
 def _day_prefix(plant_id: uuid.UUID, at: datetime) -> str:
@@ -103,64 +89,64 @@ def read_object(bucket: str, key: str) -> bytes:
         raise CaptureDeviceError(f"Could not read {bucket}/{key}: {exc}") from exc
 
 
-def capture_for_plant(
-    session: Session, plant_id: uuid.UUID, run_id: uuid.UUID | None = None
-) -> CaptureResult:
-    """Grab, check and store one frame for ``plant_id``.
-
-    Raises :class:`CaptureUnavailable` when the plant is unknown, archived, has no
-    ``device_id`` or its device is not in ``CAPTURE_WEBCAM_MAP`` (an empty map
-    disables capture), :class:`CaptureBusy` when the device's webcam is already in
-    use, and :class:`CaptureDeviceError` when the webcam or MinIO fails. A frame
-    that fails the quality gate is still stored, with ``quality_passed=False``.
-    """
-    plant = get_plant(session, plant_id)
-    if plant is None or not plant.is_active:
-        raise CaptureUnavailable("Plant not found or archived")
-    if plant.device_id is None:
-        raise CaptureUnavailable("Plant has no device_id")
-    webcams = parse_webcam_map(get_settings().capture_webcam_map)
-    if not webcams:
-        raise CaptureUnavailable("Capture is disabled (CAPTURE_WEBCAM_MAP is empty)")
-    if plant.device_id not in webcams:
-        raise CaptureUnavailable(f"Device {plant.device_id!r} is not in CAPTURE_WEBCAM_MAP")
-
-    with _device_lock(plant.device_id):
-        return _capture(session, plant_id, run_id, plant.device_id, webcams[plant.device_id])
+def _as_utc(at: datetime) -> datetime:
+    return at.replace(tzinfo=UTC) if at.tzinfo is None else at.astimezone(UTC)
 
 
-def _capture(
+def ingest_frame(
     session: Session,
     plant_id: uuid.UUID,
-    run_id: uuid.UUID | None,
+    *,
     device_id: str,
-    camera_index: int,
+    jpeg: bytes,
+    captured_at: datetime | None = None,
 ) -> CaptureResult:
-    try:
-        grabbed = capture_once(CameraConfig(camera_index=camera_index))
-    except WebcamError as exc:
-        raise CaptureDeviceError(str(exc)) from exc
+    """Check and store one uploaded photo of ``plant_id``.
 
-    quality = assess_image_quality(grabbed.image, QualityConfig())
+    The caller has already resolved the plant (a device through ``registry``).
+    ``captured_at`` is the device's clock; it defaults to receipt time and may be
+    at most :data:`CLOCK_SKEW` ahead. A photo that fails the quality gate is
+    still stored, with ``quality_passed=False`` and the reasons, so the device
+    can be told to retake it. The frame is not tied to a run until the capture
+    stage claims it.
+
+    Raises :class:`InvalidUpload` for a non-JPEG, oversized or future-dated
+    upload, and :class:`CaptureDeviceError` when MinIO fails.
+    """
+    now = utcnow()
+    if len(jpeg) > MAX_UPLOAD_BYTES:
+        raise InvalidUpload(f"upload is {len(jpeg)} bytes; the limit is {MAX_UPLOAD_BYTES}")
+    if not jpeg.startswith(_JPEG_MAGIC):
+        raise InvalidUpload("upload is not a JPEG image")
+    taken_at = now if captured_at is None else _as_utc(captured_at)
+    if taken_at > now + CLOCK_SKEW:
+        raise InvalidUpload("captured_at is in the future")
+    try:
+        image = decode_image(jpeg)
+    except ImageCodecError as exc:
+        raise InvalidUpload(f"upload could not be decoded: {exc}") from exc
+
+    quality = assess_image_quality(image, QualityConfig())
     reasons = list(quality.reasons)
     processed = None
     if quality.valid:
         try:
-            processed = preprocess_image(grabbed.image, PreprocessConfig())
+            processed = preprocess_image(image, PreprocessConfig())
         except PreprocessError:
             reasons.append("plant_not_detected")
 
-    prefix = _day_prefix(plant_id, grabbed.captured_at)
+    height, width = image.shape[:2]
+    prefix = _day_prefix(plant_id, taken_at)
     capture_id = uuid.uuid4()
     capture = Capture(
         id=capture_id,
         plant_id=plant_id,
-        run_id=run_id,
+        run_id=None,
         device_id=device_id,
-        captured_at=grabbed.captured_at,
+        captured_at=taken_at,
         raw_object_key=f"{prefix}/{capture_id}.jpg",
-        width=grabbed.width,
-        height=grabbed.height,
+        width=int(width),
+        height=int(height),
         brightness=quality.brightness,
         blur_score=quality.blur_score,
         quality_passed=processed is not None,
@@ -169,23 +155,22 @@ def _capture(
 
     buckets = bucket_names()
     storage = get_minio_client()
-    _upload(storage, buckets["captures"], capture.raw_object_key, grabbed.jpeg)
+    _upload(storage, buckets["captures"], capture.raw_object_key, jpeg)
 
     frame = None
     if processed is not None:
-        previous = latest_frames(session, plant_id, limit=1)
         frame_id = uuid.uuid4()
         frame = ProcessedFrame(
             id=frame_id,
             capture_id=capture_id,
             plant_id=plant_id,
-            run_id=run_id,
+            run_id=None,
             object_key=f"{prefix}/{frame_id}_{processed.crop_type}.jpg",
             crop_type=processed.crop_type,
             width=processed.output_width,
             height=processed.output_height,
-            aligned_to_frame_id=previous[0][0].id if previous else None,
-            processed_at=utcnow(),
+            aligned_to_frame_id=None,
+            processed_at=now,
         )
         _upload(storage, buckets["frames_derived"], frame.object_key, encode_jpeg(processed.image))
 
@@ -197,6 +182,50 @@ def _capture(
     return CaptureResult(capture=capture, processed_frame=frame)
 
 
+def claim_frame(
+    session: Session, plant_id: uuid.UUID, run_id: uuid.UUID
+) -> ProcessedFrame | None:
+    """Tie the newest frame uploaded since the previous run to ``run_id``.
+
+    "Since the previous run" means captured after the last frame a run claimed.
+    Older unclaimed frames stay unclaimed. The claimed frame is aligned to that
+    previous run's frame, which is what ``assessment`` compares it with. Returns
+    ``None`` when nothing new has arrived — the stage has nothing to do.
+    """
+    previous = _latest_claimed(session, plant_id)
+    stmt = (
+        select(ProcessedFrame, Capture)
+        .join(Capture, Capture.id == ProcessedFrame.capture_id)
+        .where(ProcessedFrame.plant_id == plant_id, ProcessedFrame.run_id.is_(None))
+    )
+    if previous is not None:
+        stmt = stmt.where(Capture.captured_at > previous[1].captured_at)
+    row = session.execute(
+        stmt.order_by(Capture.captured_at.desc(), ProcessedFrame.processed_at.desc()).limit(1)
+    ).first()
+    if row is None:
+        return None
+    frame, capture = row
+    frame.run_id = run_id
+    frame.aligned_to_frame_id = previous[0].id if previous is not None else None
+    capture.run_id = run_id
+    session.commit()
+    return frame
+
+
+def _latest_claimed(
+    session: Session, plant_id: uuid.UUID
+) -> tuple[ProcessedFrame, Capture] | None:
+    row = session.execute(
+        select(ProcessedFrame, Capture)
+        .join(Capture, Capture.id == ProcessedFrame.capture_id)
+        .where(ProcessedFrame.plant_id == plant_id, ProcessedFrame.run_id.is_not(None))
+        .order_by(Capture.captured_at.desc(), ProcessedFrame.processed_at.desc())
+        .limit(1)
+    ).first()
+    return None if row is None else (row[0], row[1])
+
+
 def latest_frames(
     session: Session,
     plant_id: uuid.UUID,
@@ -204,11 +233,12 @@ def latest_frames(
     limit: int,
     run_id: uuid.UUID | None = None,
     before: datetime | None = None,
+    claimed_only: bool = False,
 ) -> list[tuple[ProcessedFrame, datetime]]:
-    """Processed frames newest first, each with its capture's ``captured_at``.
+    """Processed frames newest first (by capture time), each with its ``captured_at``.
 
-    ``run_id`` keeps only that run's frames; ``before`` only frames processed
-    strictly earlier.
+    ``run_id`` keeps only that run's frames; ``before`` only frames captured
+    strictly earlier; ``claimed_only`` only frames some run has claimed.
     """
     stmt = (
         select(ProcessedFrame, Capture.captured_at)
@@ -218,8 +248,12 @@ def latest_frames(
     if run_id is not None:
         stmt = stmt.where(ProcessedFrame.run_id == run_id)
     if before is not None:
-        stmt = stmt.where(ProcessedFrame.processed_at < before)
-    stmt = stmt.order_by(ProcessedFrame.processed_at.desc()).limit(limit)
+        stmt = stmt.where(Capture.captured_at < before)
+    if claimed_only:
+        stmt = stmt.where(ProcessedFrame.run_id.is_not(None))
+    stmt = stmt.order_by(Capture.captured_at.desc(), ProcessedFrame.processed_at.desc()).limit(
+        limit
+    )
     return [(frame, captured_at) for frame, captured_at in session.execute(stmt).all()]
 
 

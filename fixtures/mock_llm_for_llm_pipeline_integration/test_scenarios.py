@@ -304,7 +304,7 @@ def run_scenario(
 
             with (
                 patch("orchestrator.stages.session_factory", session_factory),
-                patch("orchestrator.stages.capture_for_plant", _ok_capture),
+                patch("orchestrator.stages.claim_frame", _ok_capture),
                 patch("orchestrator.stages.assess_frames", _use_seeded_observation),
             ):
                 if not live_llm:

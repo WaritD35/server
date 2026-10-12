@@ -28,8 +28,12 @@ class ProcessedFrameRead(BaseModel):
     processed_at: datetime
 
 
-class CaptureRunRead(BaseModel):
-    """The outcome of one webcam capture; ``processed_frame`` is ``None`` on quality failure."""
+class CaptureRead(BaseModel):
+    """The outcome of one uploaded photo; ``processed_frame`` is ``None`` on quality failure.
+
+    ``quality_reason`` says why (``image_too_dark``, ``plant_not_detected``, …)
+    so the device can retake the photo.
+    """
 
     capture_id: uuid.UUID
     plant_id: uuid.UUID

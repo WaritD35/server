@@ -126,7 +126,7 @@ def main() -> None:
         print("[Step 1] Executing Orchestrator Pipeline across all 4 stages...")
         with (
             patch("orchestrator.stages.session_factory", session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch("orchestrator.stages.assess_frames", _write_unhealthy_observation),
         ):
             status = execute_run(session, run, stages=STAGES)

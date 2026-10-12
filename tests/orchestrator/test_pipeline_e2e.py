@@ -158,7 +158,7 @@ def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Ses
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch(
                 "orchestrator.stages.assess_frames",
                 _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
@@ -224,7 +224,7 @@ def test_companion_previous_observation_excludes_this_run(
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch(
                 "orchestrator.stages.assess_frames",
                 _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
@@ -251,7 +251,7 @@ def test_an_invalid_health_status_fails_the_run(
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch(
                 "orchestrator.stages.assess_frames",
                 _write_observation(HealthStatus.HEALTHY.value, 0.95, []),
@@ -276,7 +276,7 @@ def test_pipeline_branch_low_confidence_request_info(
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch(
                 "orchestrator.stages.assess_frames",
                 _write_observation(
@@ -316,7 +316,7 @@ def test_pipeline_branch_unhealthy_care_advice(
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
             patch(
                 "orchestrator.stages.assess_frames",
                 _write_observation(
@@ -349,30 +349,26 @@ def test_pipeline_branch_unhealthy_care_advice(
         assert len(comp_msg.message) > 10
 
 
-def test_pipeline_skips_when_webcam_map_is_empty(
+def test_pipeline_skips_when_no_new_photo_was_uploaded(
     e2e_session_factory: sessionmaker[Session],
 ):
-    """Empty CAPTURE_WEBCAM_MAP skips capture; the run is skipped, not failed."""
+    """No upload since the previous run: capture skips; the run is skipped, not failed."""
     with e2e_session_factory() as session:
         _plant_id, run_id = _add_plant_and_run(
             session,
-            name="Unmapped Plant",
+            name="Quiet Plant",
             species_code="monstera_deliciosa",
             device_id="cam-1",
         )
         run = session.get(PipelineRun, run_id)
         assert run is not None
 
-        with (
-            patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("capture.service.get_settings") as settings,
-        ):
-            settings.return_value.capture_webcam_map = ""
+        with patch("orchestrator.stages.session_factory", e2e_session_factory):
             status = execute_run(session, run, stages=STAGES)
 
         assert status == "skipped"
         assert run.current_stage == "capture"
-        assert "CAPTURE_WEBCAM_MAP" in (run.detail or "")
+        assert "no new photo" in (run.detail or "")
         assert get_trigger_result(session, run_id) is None
 
 
@@ -389,7 +385,7 @@ def test_pipeline_skips_when_assessment_has_no_baseline_frame(
 
         with (
             patch("orchestrator.stages.session_factory", e2e_session_factory),
-            patch("orchestrator.stages.capture_for_plant", _ok_capture),
+            patch("orchestrator.stages.claim_frame", _ok_capture),
         ):
             status = execute_run(session, run, stages=STAGES)
 

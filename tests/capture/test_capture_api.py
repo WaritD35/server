@@ -1,153 +1,175 @@
-"""``/capture`` debug routes: admin only, contract shape, error codes."""
+"""``/capture`` routes: device upload, admin upload and listing; auth and error codes."""
 
 import uuid
 from collections.abc import Callable
 
-import pytest
-from capture_fakes import FakeStorage, FakeWebcam, dark_image
+from capture_fakes import FakeStorage, dark_jpeg, plant_jpeg
 from fastapi.testclient import TestClient
 
-from capture import service
+from core.devices.models import Device
 from core.users.models import User
 
-ClientAs = Callable[[User | None], TestClient]
+ClientAs = Callable[[User | Device | None], TestClient]
 
 
-def _run(client: TestClient, plant_id: uuid.UUID | str) -> tuple[int, dict]:
-    response = client.post(f"/capture/plants/{plant_id}/run")
+def _device_upload(
+    client: TestClient, jpeg: bytes, **form: str
+) -> tuple[int, dict]:
+    response = client.post(
+        "/capture/devices/me/frames",
+        files={"image": ("photo.jpg", jpeg, "image/jpeg")},
+        data=form,
+    )
     return response.status_code, response.json()
 
 
-def test_run_requires_an_admin(
-    client_as: ClientAs, admin: User, owner: User, plant_id: uuid.UUID, webcam: FakeWebcam
-) -> None:
-    assert _run(client_as(None), plant_id)[0] == 401
-    assert _run(client_as(owner), plant_id)[0] == 403
-    assert client_as(owner).get(f"/capture/plants/{plant_id}/frames").status_code == 403
-    assert webcam.calls == []
+def _admin_upload(client: TestClient, plant_id: uuid.UUID | str, jpeg: bytes) -> tuple[int, dict]:
+    response = client.post(
+        f"/capture/plants/{plant_id}/frames",
+        files={"image": ("photo.jpg", jpeg, "image/jpeg")},
+    )
+    return response.status_code, response.json()
 
 
-def test_run_returns_the_capture_and_its_frame(
+# --------------------------------------------------------------------------- #
+# device upload
+# --------------------------------------------------------------------------- #
+
+
+def test_a_device_uploads_a_photo_of_its_plant(
     client_as: ClientAs,
-    admin: User,
     plant_id: uuid.UUID,
-    webcam: FakeWebcam,
+    add_device: Callable[..., Device],
     storage: FakeStorage,
 ) -> None:
-    code, body = _run(client_as(admin), plant_id)
+    device = add_device("cam-1")
 
-    assert code == 200
+    code, body = _device_upload(
+        client_as(device), plant_jpeg(), captured_at="2026-10-11T07:00:00Z"
+    )
+
+    assert code == 201
     assert body["plant_id"] == str(plant_id)
     assert body["quality_passed"] is True
     assert body["quality_reason"] is None
-    assert isinstance(body["brightness"], float) and isinstance(body["blur_score"], float)
+    assert body["captured_at"].startswith("2026-10-11T07:00:00")
     frame = body["processed_frame"]
-    assert frame["capture_id"] == body["capture_id"]
+    assert frame["plant_id"] == str(plant_id)
     assert frame["run_id"] is None
     assert frame["crop_type"] == "whole_plant"
-    assert frame["object_key"] == f"{plant_id}/2026/10/11/{frame['id']}_whole_plant.jpg"
-    assert frame["aligned_to_frame_id"] is None
-    assert frame["width"] > 0 and frame["height"] > 0
-    assert body["captured_at"].startswith("2026-10-11T07:06")
-    assert frame["processed_at"]
 
 
-def test_quality_failure_answers_200_without_a_frame(
+def test_a_bad_photo_answers_201_with_the_reason_to_retake(
     client_as: ClientAs,
-    admin: User,
     plant_id: uuid.UUID,
-    webcam: FakeWebcam,
+    add_device: Callable[..., Device],
     storage: FakeStorage,
 ) -> None:
-    webcam.image = dark_image()
-    code, body = _run(client_as(admin), plant_id)
+    code, body = _device_upload(client_as(add_device("cam-1")), dark_jpeg())
 
-    assert code == 200
+    assert code == 201
     assert body["quality_passed"] is False
-    assert body["quality_reason"] == "image_too_dark,image_too_blurry"
+    assert "image_too_dark" in body["quality_reason"]
     assert body["processed_frame"] is None
 
 
-def test_unknown_or_archived_plant_is_404(
-    client_as: ClientAs, admin: User, add_plant: Callable[..., uuid.UUID], webcam: FakeWebcam
-) -> None:
-    client = client_as(admin)
-    assert _run(client, uuid.uuid4())[0] == 404
-    assert _run(client, add_plant(archived=True))[0] == 404
-    assert client.get(f"/capture/plants/{uuid.uuid4()}/frames").status_code == 404
-    assert webcam.calls == []
-
-
-@pytest.mark.parametrize(
-    ("webcam_map", "device_id"),
-    [("", "cam-1"), ("cam-2=1", "cam-1"), ("cam-1=0", None)],
-)
-def test_unavailable_capture_is_409(
+def test_a_device_without_a_bound_plant_is_404(
     client_as: ClientAs,
-    admin: User,
     add_plant: Callable[..., uuid.UUID],
-    set_webcam_map: Callable[[str], None],
-    webcam: FakeWebcam,
-    webcam_map: str,
-    device_id: str | None,
-) -> None:
-    set_webcam_map(webcam_map)
-    assert _run(client_as(admin), add_plant(device_id))[0] == 409
-
-
-def test_busy_webcam_is_409(
-    client_as: ClientAs, admin: User, plant_id: uuid.UUID, webcam: FakeWebcam
-) -> None:
-    with service._device_lock("cam-1"):
-        code, body = _run(client_as(admin), plant_id)
-    assert code == 409
-    assert "busy" in body["detail"]
-
-
-def test_webcam_failure_is_503(
-    client_as: ClientAs,
-    admin: User,
-    plant_id: uuid.UUID,
-    webcam: FakeWebcam,
+    add_device: Callable[..., Device],
     storage: FakeStorage,
 ) -> None:
-    webcam.fail()
-    assert _run(client_as(admin), plant_id)[0] == 503
+    add_plant("cam-1")
+    unbound = add_device("cam-9")
+    # Bound, but by an earlier owner: never lands on that owner's plant.
+    passed_on = add_device("cam-2", owner_id=uuid.uuid4())
+    add_plant("cam-2")
+
+    assert _device_upload(client_as(unbound), plant_jpeg())[0] == 404
+    assert _device_upload(client_as(passed_on), plant_jpeg())[0] == 404
+    assert storage.objects == {}
+
+
+def test_an_upload_needs_a_device_token(client_as: ClientAs, plant_id: uuid.UUID) -> None:
+    assert _device_upload(client_as(None), plant_jpeg())[0] == 401
+
+
+def test_unusable_uploads_are_422_or_413(
+    client_as: ClientAs,
+    plant_id: uuid.UUID,
+    add_device: Callable[..., Device],
+    storage: FakeStorage,
+    monkeypatch,
+) -> None:
+    client = client_as(add_device("cam-1"))
+
+    assert _device_upload(client, b"not a jpeg")[0] == 422
+    assert _device_upload(client, plant_jpeg(), captured_at="2999-01-01T00:00:00Z")[0] == 422
+
+    from capture import service
+
+    monkeypatch.setattr(service, "MAX_UPLOAD_BYTES", 10)
+    assert _device_upload(client, plant_jpeg())[0] == 413
+    assert storage.objects == {}
 
 
 def test_storage_failure_is_503(
     client_as: ClientAs,
-    admin: User,
     plant_id: uuid.UUID,
-    webcam: FakeWebcam,
+    add_device: Callable[..., Device],
     storage: FakeStorage,
 ) -> None:
     storage.down = True
-    assert _run(client_as(admin), plant_id)[0] == 503
+
+    assert _device_upload(client_as(add_device("cam-1")), plant_jpeg())[0] == 503
+
+
+# --------------------------------------------------------------------------- #
+# admin routes
+# --------------------------------------------------------------------------- #
+
+
+def test_admin_routes_require_an_admin(
+    client_as: ClientAs, owner: User, plant_id: uuid.UUID
+) -> None:
+    assert _admin_upload(client_as(None), plant_id, plant_jpeg())[0] == 401
+    assert _admin_upload(client_as(owner), plant_id, plant_jpeg())[0] == 403
+    assert client_as(owner).get(f"/capture/plants/{plant_id}/frames").status_code == 403
+
+
+def test_an_admin_can_upload_for_a_plant(
+    client_as: ClientAs, admin: User, plant_id: uuid.UUID, storage: FakeStorage
+) -> None:
+    code, body = _admin_upload(client_as(admin), plant_id, plant_jpeg())
+
+    assert code == 201
+    assert body["quality_passed"] is True
+
+
+def test_admin_upload_for_an_unknown_or_archived_plant_is_404(
+    client_as: ClientAs,
+    admin: User,
+    add_plant: Callable[..., uuid.UUID],
+    storage: FakeStorage,
+) -> None:
+    archived = add_plant(archived=True)
+
+    assert _admin_upload(client_as(admin), uuid.uuid4(), plant_jpeg())[0] == 404
+    assert _admin_upload(client_as(admin), archived, plant_jpeg())[0] == 404
 
 
 def test_frames_lists_newest_first(
-    client_as: ClientAs,
-    admin: User,
-    plant_id: uuid.UUID,
-    webcam: FakeWebcam,
-    storage: FakeStorage,
+    client_as: ClientAs, admin: User, plant_id: uuid.UUID, storage: FakeStorage
 ) -> None:
     client = client_as(admin)
-    ids = [_run(client, plant_id)[1]["processed_frame"]["id"] for _ in range(3)]
+    for _ in range(3):
+        _admin_upload(client, plant_id, plant_jpeg())
 
-    frames = client.get(f"/capture/plants/{plant_id}/frames").json()
-    assert [f["id"] for f in frames] == ids[::-1]
-    assert frames[0]["plant_id"] == str(plant_id)
-    assert frames[0]["aligned_to_frame_id"] == ids[1]
+    response = client.get(f"/capture/plants/{plant_id}/frames", params={"limit": 2})
 
-    limited = client.get(f"/capture/plants/{plant_id}/frames", params={"limit": 1}).json()
-    assert [f["id"] for f in limited] == [ids[2]]
-
-
-@pytest.mark.parametrize("limit", [0, 51])
-def test_frames_limit_is_bounded(
-    client_as: ClientAs, admin: User, plant_id: uuid.UUID, limit: int
-) -> None:
-    response = client_as(admin).get(f"/capture/plants/{plant_id}/frames", params={"limit": limit})
-    assert response.status_code == 422
+    assert response.status_code == 200
+    frames = response.json()
+    assert len(frames) == 2
+    assert frames[0]["processed_at"] >= frames[1]["processed_at"]
+    assert client.get(f"/capture/plants/{uuid.uuid4()}/frames").status_code == 404
+    assert client.get(f"/capture/plants/{plant_id}/frames", params={"limit": 51}).status_code == 422

@@ -1,7 +1,7 @@
 """Published in-process interface for other bounded contexts.
 
-``assessment`` compares a plant's two most recent processed frames: it gets them
-from :func:`get_frame_pair` and their bytes from :func:`read_frame` instead of
+``assessment`` compares a run's frame with the previous run's: it gets them from
+:func:`get_frame_pair` and their bytes from :func:`read_frame` instead of
 reaching into the ``vision`` schema or the ``frames-derived`` bucket.
 """
 
@@ -29,8 +29,11 @@ def get_frame_pair(
 ) -> FramePair | None:
     """The frames to compare for ``plant_id``, or ``None`` when fewer than two exist.
 
-    With ``run_id``, ``current`` is that run's processed frame and ``previous``
-    the latest one processed before it; without, the latest two processed frames.
+    With ``run_id``, ``current`` is the frame that run claimed and ``previous``
+    the frame of the run before it (the latest frame a run claimed, captured
+    earlier) — so each assessment compares against the one before, not against
+    whatever the device happened to upload in between. Without ``run_id`` (the
+    debug route), the latest two frames by capture time.
     """
     if run_id is None:
         rows = service.latest_frames(session, plant_id, limit=2)
@@ -42,7 +45,9 @@ def get_frame_pair(
         if not own:
             return None
         current = own[0]
-        earlier = service.latest_frames(session, plant_id, limit=1, before=current[0].processed_at)
+        earlier = service.latest_frames(
+            session, plant_id, limit=1, before=current[1], claimed_only=True
+        )
         if not earlier:
             return None
         previous = earlier[0]

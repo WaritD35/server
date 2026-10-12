@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 from capture_fakes import PLANT_BOX, checkerboard, dark_image, plant_image
 
-from capture.camera.config import parse_webcam_map
 from capture.vision.alignment import AlignmentConfig, create_comparison_canvas
 from capture.vision.codec import ImageCodecError, decode_image, encode_jpeg
 from capture.vision.preprocess import PreprocessConfig, PreprocessError, preprocess_image
@@ -102,11 +101,3 @@ def test_decode_rejects_non_images() -> None:
     with pytest.raises(ImageCodecError):
         decode_image(b"not an image")
 
-
-def test_parse_webcam_map() -> None:
-    assert parse_webcam_map("") == {}
-    assert parse_webcam_map(" cam-1=0 , cam-2=3,") == {"cam-1": 0, "cam-2": 3}
-    with pytest.raises(ValueError, match="Malformed"):
-        parse_webcam_map("cam-1")
-    with pytest.raises(ValueError, match="Malformed"):
-        parse_webcam_map("cam-1=front")

@@ -29,7 +29,7 @@ from assessment import (
     get_previous_observation,
     get_trigger_result,
 )
-from capture import CaptureBusy, CaptureUnavailable, capture_for_plant
+from capture import claim_frame
 from companion import generate_for_plant as generate_companion_message
 from core.db import session_factory
 from registry import get_plant
@@ -56,16 +56,16 @@ class Stage:
 
 
 def run_capture(payload: StageInput) -> None:
-    """Grab and store a webcam frame for the plant (quality, preprocess, align)."""
+    """Claim the newest photo the plant's device uploaded since the previous run.
+
+    The device uploads on its own schedule (``POST /capture/devices/me/frames``);
+    quality check and cropping already happened on upload. Nothing new → skip.
+    """
     logger.info("capture stage plant=%s run=%s", payload.plant_id, payload.run_id)
     with session_factory() as session:
-        try:
-            result = capture_for_plant(session, payload.plant_id, payload.run_id)
-        except (CaptureUnavailable, CaptureBusy) as err:
-            logger.info("Capture stage skipped: %s", err)
-            raise StageSkipped(str(err)) from err
-        if not result.quality_passed:
-            reason = result.quality_reason or "quality check failed"
+        frame = claim_frame(session, payload.plant_id, payload.run_id)
+        if frame is None:
+            reason = "no new photo uploaded since the previous run"
             logger.info("Capture stage skipped: %s", reason)
             raise StageSkipped(reason)
 

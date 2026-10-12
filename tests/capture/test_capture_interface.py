@@ -71,15 +71,17 @@ def test_latest_two_frames_without_run_id(session: Session) -> None:
     assert pair.current.captured_at.replace(tzinfo=UTC) == T0 + timedelta(minutes=20)
 
 
-def test_run_id_selects_that_runs_frame_and_the_one_before(session: Session) -> None:
+def test_run_id_pairs_that_runs_frame_with_the_previous_runs(session: Session) -> None:
+    """Uploads no run claimed are skipped: the previous run's frame is the baseline."""
     plant_id, run_id = uuid.uuid4(), uuid.uuid4()
-    first = _frame(session, plant_id, 0)
+    of_previous_run = _frame(session, plant_id, 0, uuid.uuid4())
+    _frame(session, plant_id, 5)  # uploaded in between, never claimed
     of_run = _frame(session, plant_id, 10, run_id)
     later = _frame(session, plant_id, 20)
 
     pair = get_frame_pair(session, plant_id, run_id)
     assert pair is not None
-    assert (pair.previous.id, pair.current.id) == (first, of_run)
+    assert (pair.previous.id, pair.current.id) == (of_previous_run, of_run)
     assert pair.current.run_id == run_id
 
     latest_pair = get_frame_pair(session, plant_id)
@@ -87,10 +89,11 @@ def test_run_id_selects_that_runs_frame_and_the_one_before(session: Session) -> 
     assert (latest_pair.previous.id, latest_pair.current.id) == (of_run, later)
 
 
-def test_run_id_without_an_earlier_frame_or_without_a_frame(session: Session) -> None:
+def test_run_id_without_an_earlier_run_or_without_a_frame(session: Session) -> None:
     plant_id, run_id = uuid.uuid4(), uuid.uuid4()
-    _frame(session, plant_id, 0, run_id)
-    _frame(session, plant_id, 10)
+    _frame(session, plant_id, 0)  # earlier, but no run claimed it
+    _frame(session, plant_id, 10, run_id)
+    _frame(session, plant_id, 20)
 
     assert get_frame_pair(session, plant_id, run_id) is None
     assert get_frame_pair(session, plant_id, uuid.uuid4()) is None

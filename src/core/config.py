@@ -88,10 +88,6 @@ class Settings(BaseSettings):
     vlm_api_key: str = ""
     vlm_local_model_path: str = "models/internvl3_5-2b"
 
-    # --- capture (webcam frames; used by `capture`) ---
-    # "device_id=webcam_index,..."; empty means no device is captured anywhere.
-    capture_webcam_map: str = ""
-
     # --- Langfuse (prompt management, tracing, datasets; used by `mlops`) ---
     # Langfuse is split by project, one per LLM-using component, so there is a
     # key pair per component rather than one for the server. Resolved by
