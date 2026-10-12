@@ -46,11 +46,14 @@ def run_assessment(payload: StageInput) -> None:
 
 ### Capture and assessment
 
-- `run_capture` calls `capture.service.capture_for_plant`. Raises `StageSkipped`
+Every stage imports from the context's package (`from capture import …`), never
+from its `service` / `models` modules.
+
+- `run_capture` calls `capture.capture_for_plant`. Raises `StageSkipped`
   when `CAPTURE_WEBCAM_MAP` is empty, the device is unmapped, the webcam is
   busy, or the quality check fails (the `vision.capture` row is still stored).
   `CaptureDeviceError` (webcam / MinIO) is not skipped — the run **fails**.
-- `run_assessment` calls `assessment.service.assess_frames` (VLM probe, with
+- `run_assessment` calls `assessment.assess_frames` (VLM probe, with
   `frames_run_id=run_id`) then `evaluate_observation` (0-token rules). Raises
   `StageSkipped` when species is unset or fewer than two processed frames exist
   (baseline). `AssessmentRunError` and `AssessmentUnavailableError` fail the run.

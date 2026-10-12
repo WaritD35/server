@@ -18,19 +18,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from advice.interface import get_care_plan
-from advice.service import generate_for_plant as generate_advice_for_plant
-from assessment.interface import (
+from advice import generate_for_plant as generate_advice_for_plant
+from advice import get_care_plan
+from assessment import (
+    AssessmentSkipped,
+    TriggerDecision,
+    assess_frames,
+    evaluate_observation,
     get_observation_by_run,
     get_previous_observation,
     get_trigger_result,
 )
-from assessment.schemas import TriggerDecision
-from assessment.service import AssessmentSkipped, assess_frames, evaluate_observation
-from capture.service import CaptureBusy, CaptureUnavailable, capture_for_plant
-from companion.service import generate_for_plant as generate_companion_message
+from capture import CaptureBusy, CaptureUnavailable, capture_for_plant
+from companion import generate_for_plant as generate_companion_message
 from core.db import session_factory
-from registry.interface import get_plant
+from registry import get_plant
 
 logger = logging.getLogger(__name__)
 

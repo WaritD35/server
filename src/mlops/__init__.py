@@ -6,7 +6,7 @@ is a shared library, alongside ``core``, that the LLM-using contexts depend on::
     assessment ─┐
     advice     ─┼─▶ mlops ─┬─▶ Langfuse  (prompts / traces / datasets / scores)
     knowledge  ─┤          └─▶ VLM (on-prem, vLLM) · LLM (external, text only)
-    registry   ─┘
+    companion  ─┘
 
 **Langfuse manages the prompts**, including their versions, the ``production``
 label that decides which version is live, and the ``config`` blob holding each

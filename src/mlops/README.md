@@ -6,8 +6,11 @@ experiment behind those calls. **Langfuse** manages the prompts.
 > Status: `mlops/knowledge/` is **implemented** — the probe-generation agent, its
 > validation, its human-review score and its experiment runner. `mlops/assessment/`
 > is **implemented** — `run_probe`, local|vllm backends, and aggregation.
-> `advice/` and `registry/` are still **templates**. Read `knowledge/` as the
-> worked example of the Langfuse shape; `assessment/` is the VLM counterpart.
+> `assessment/`, `advice/` and `companion/` register their prompts with
+> `python -m mlops.<component>.seed`; `advice/` and `companion/` resolve their
+> prompts from Langfuse, but their experiment runners are not written yet. Read
+> `knowledge/` as the worked example of the Langfuse shape; `assessment/` is the
+> VLM counterpart.
 
 ## The stack
 
@@ -31,7 +34,7 @@ alongside `core` that the LLM-using contexts depend on:
 assessment ─┐
 advice     ─┼─▶ mlops ─┬─▶ Langfuse  (prompts / traces / datasets / scores)
 knowledge  ─┤          └─▶ VLM (on-prem, vLLM) · LLM (external, text only)
-registry   ─┘
+companion  ─┘
 ```
 
 **The dependency is one-way.** `mlops` never imports a bounded context — its
@@ -52,9 +55,9 @@ without a change to shared code rippling across all four.
 | Package | Model | Entry point the context calls | Owner |
 |---|---|---|---|
 | `mlops/assessment/` | VLM (`VLM_PROVIDER=local` or `vllm`) | `run_probe(ProbeInput) -> ProbeVerdict` | implemented |
-| `mlops/advice/` | LLM | `generate_advice(AdviceInput) -> AdviceResult` | TODO |
+| `mlops/advice/` | LLM (`LLM_PROVIDER`) | `generate_advice(AdviceInput) -> AdviceResult` | prompt in Langfuse; experiment TODO |
 | `mlops/knowledge/` | LLM | `generate_probes(GenerateProbesInput) -> GenerateProbesResult` | TODO |
-| `mlops/registry/` | VLM | `identify_species(...) -> SpeciesGuess` | TODO |
+| `mlops/companion/` | LLM (`LLM_PROVIDER`) | `generate_companion_message(...) -> str \| None` | prompt in Langfuse; no experiment yet |
 
 ### The template inside each package
 
@@ -181,11 +184,80 @@ to the two images.
 
 Its `config` **must** carry `runs`, `temperature`, `max_new_tokens` and `model`.
 A missing key, `runs` outside `1..8`, or `max_new_tokens` outside `1..2048` raises
-`AssessmentUnavailableError` (callers map that to 503); there are no in-repo
+`AssessmentUnavailableError` (callers map that to 503); there are no runtime
 defaults and no model name in the environment.
 
-Upload is **one-time and manual** in the Langfuse UI (there is no seed script
-and no in-repo prompt text). After the first version, edit and label in the UI.
+Register it with `python -m mlops.assessment.seed --model <served model id>`
+(see [Registering a new prompt version](#registering-a-new-prompt-version)). The
+text and config it sends are `prompts.BOOTSTRAP_PROMPT` / `BOOTSTRAP_CONFIG`; the
+runtime never reads them, so a missing Langfuse prompt still raises.
+
+### What `advice` needs in Langfuse
+
+A **chat** prompt named **`advice/diagnose`** with the `production` label,
+compiled with exactly `prompts.DIAGNOSE_VARIABLES`:
+
+`plant_id`, `health_status`, `trigger_reason`, `symptoms`, `observation_history`,
+`knowledge_context`
+
+(`symptoms` and `observation_history` arrive as JSON strings.) The output shape is
+enforced by structured output (`GeneratedCarePlan`), not by the prompt text.
+
+Its `config` carries `temperature` and, optionally, `model`. Advice is the one
+component where `model` may be absent: it reaches its model through
+`mlops.factory.get_llm`, where the deployment picks the provider
+(`LLM_PROVIDER=openai|ollama`) and a model id only means something to one of
+them. A version that names `model` pins it; one that does not runs on the
+provider's default.
+
+Advice must not stop the pipeline, so it **degrades** instead of raising: if the
+`production` prompt cannot be fetched it runs the in-repo bootstrap prompt
+(`prompts.BOOTSTRAP_MESSAGES`), and if the LLM call fails it returns a rule-based
+plan. `AdviceResult.prompt_ref` (`advice/diagnose@3`, or `…@bootstrap`) and
+`AdviceResult.source` (`llm` | `fallback`) say which path produced a plan. A
+pinned `version` (an experiment) never falls back.
+
+Register it with `python -m mlops.advice.seed [--model <id>]`.
+
+### What `companion` needs in Langfuse
+
+A **chat** prompt named **`companion/speak`** with the `production` label,
+compiled with exactly `prompts.SPEAK_VARIABLES`:
+
+`plant_nickname`, `assessment`, `health_status`, `tone`, `memory`, `actions`
+
+`memory` is the whole optional history section (7-day observations and
+milestones) or `""`; `actions` is one `- ` line per care action.
+
+Its `config` carries `temperature`, optionally `model` (as for `advice`), and the
+plant's voice: `tones` maps a `health_status` to the text compiled into `{{tone}}`,
+and `default_tone` covers any other status. A version without them uses the
+bootstrap tones.
+
+Like advice, the companion degrades: the bootstrap prompt stands in when the
+`production` prompt cannot be fetched, and on an LLM failure it returns `None`,
+so `src/companion` uses its deterministic template. A pinned `version` never
+falls back.
+
+Register it with `python -m mlops.companion.seed [--model <id>]`.
+
+### Registering a new prompt version
+
+`python -m mlops.<component>.seed` (assessment, advice and companion) registers the in-repo
+bootstrap prompt as a Langfuse version. Langfuse numbers the versions and nothing
+is overwritten:
+
+| State in Langfuse | What `seed` does |
+|---|---|
+| The prompt does not exist | Creates v1 **with** `production` — the runtime needs a live version |
+| The latest version has the same text and config | Nothing |
+| Anything else | Creates a new version **without** `production` (`--promote` labels it) |
+
+`--check` verifies the key pair, `--dry-run` prints what would be sent. The
+bootstrap text is a **starting point, not the source of truth**: day-to-day edits
+happen in the Langfuse UI. Edit the in-repo text when the change should be
+reviewed in a PR (e.g. it goes with a code change to the variables or the output
+schema), then run `seed` and promote the new version once it has been tried.
 
 ### Notes (Tier 2)
 
@@ -193,7 +265,7 @@ and no in-repo prompt text). After the first version, edit and label in the UI.
   in-process; on CPU this can take minutes. Development only; production uses
   `vllm`.
 - Assessment requires Langfuse credentials and the prompt above. There is no
-  in-repo prompt fallback.
+  runtime prompt fallback.
 
 ## Bringing up a component's Langfuse project
 

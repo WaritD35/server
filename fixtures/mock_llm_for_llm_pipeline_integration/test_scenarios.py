@@ -229,18 +229,24 @@ def run_scenario(
         session.commit()
 
     # Setup mock LLM responses if in offline mock mode
-    canned_responses: list[Any] = []
+    # Advice answers through structured output and companion through plain chat,
+    # so each gets its own queue: one shared queue would hand a companion call
+    # the next advice plan whenever companion runs first (e.g. a NO_ACTION day).
+    advice_responses: list[Any] = []
+    companion_responses: list[Any] = []
     if not live_llm:
         for adv_path in spec.get("mock_advice", []):
             data = load_fixture_json(adv_path)
             if data is not None:
-                canned_responses.append(json.dumps(data))
+                advice_responses.append(json.dumps(data))
         comp_data = load_fixture_json(spec.get("mock_companion", ""))
         if comp_data is not None and "message" in comp_data:
             for _ in range(len(observations_raw)):
-                canned_responses.append(comp_data["message"])
+                companion_responses.append(comp_data["message"])
 
-    mock_llm = MockChatModel(responses=canned_responses)
+    mock_llm = MockChatModel(
+        responses=companion_responses, structured_responses=advice_responses
+    )
 
     step_results: list[dict[str, Any]] = []
 

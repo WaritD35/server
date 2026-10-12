@@ -9,7 +9,7 @@ from assessment.interface import get_recent_observations, get_trigger_result
 from assessment.schemas import TriggerDecision
 from knowledge.interface import get_care_knowledge
 from mlops.advice.runtime import AdviceInput, generate_advice
-from registry.models import Plant
+from registry.interface import get_plant
 
 
 def generate_for_plant(
@@ -24,7 +24,7 @@ def generate_for_plant(
         return None
 
     # Fetch plant profile from registry
-    plant = session.get(Plant, plant_id)
+    plant = get_plant(session, plant_id)
     species_code = plant.species_code if plant and plant.species_code else "generic"
 
     # Fetch recent observations (last 5)

@@ -241,9 +241,9 @@ contexts reach it over the network using values from `.env`.
 
 | Service | Hosting | Interface | Used by |
 |---------|---------|-----------|---------|
-| VLM (probe execution, species ID) | On-prem **vLLM**, or in-process transformers | `VLM_PROVIDER=vllm` → OpenAI-compatible HTTP (`VLM_API_BASE`); `VLM_PROVIDER=local` → weights at `VLM_LOCAL_MODEL_PATH` (`uv sync --group vlm-local`) | `mlops` (for assessment, registry) |
+| VLM (probe execution) | On-prem **vLLM**, or in-process transformers | `VLM_PROVIDER=vllm` → OpenAI-compatible HTTP (`VLM_API_BASE`); `VLM_PROVIDER=local` → weights at `VLM_LOCAL_MODEL_PATH` (`uv sync --group vlm-local`) | `mlops` (for assessment) |
 | Segmentation model | On-prem | HTTP API (`SEGMENTATION_ENDPOINT`) | capture |
-| LLM (advice, probe generation) | External API, text only | HTTP API (`LLM_API_BASE`) | `mlops` (for advice, knowledge) |
+| LLM (advice, companion, probe generation) | External API, text only | HTTP API (`LLM_API_BASE`) | `mlops` (for advice, companion, knowledge) |
 | Langfuse (prompts, traces, datasets, scores) | Langfuse Cloud or self-hosted (`LANGFUSE_HOST`) | Langfuse SDK | `mlops` — one project **per component**, so one key pair each |
 
 ---

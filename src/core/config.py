@@ -103,8 +103,6 @@ class Settings(BaseSettings):
     langfuse_advice_secret_key: str = ""
     langfuse_knowledge_public_key: str = ""
     langfuse_knowledge_secret_key: str = ""
-    langfuse_registry_public_key: str = ""
-    langfuse_registry_secret_key: str = ""
     langfuse_companion_public_key: str = ""
     langfuse_companion_secret_key: str = ""
     confidence_threshold: float = 0.5

@@ -299,7 +299,11 @@ The server runtime provides unified multi-provider LLM support via `mlops.factor
 - **`vllm` (default):** OpenAI-compatible server at `VLM_API_BASE` (`VLLMBackend`). Production.
 - **`local`:** in-process transformers from `VLM_LOCAL_MODEL_PATH` (`LocalTransformersBackend`; `uv sync --group vlm-local`). Development only; blocks the caller (including the orchestrator loop thread) for the duration of N inferences.
 
-The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` and `model`. A missing key raises `AssessmentUnavailableError`. There is no in-repo prompt text and no `VLM_MODEL` env var.
+The prompt version's `config` supplies `runs`, `temperature`, `max_new_tokens` and `model`. A missing key raises `AssessmentUnavailableError`. There is no `VLM_MODEL` env var. The in-repo bootstrap text (`mlops.assessment.prompts.BOOTSTRAP_PROMPT`) is only what `python -m mlops.assessment.seed` registers as a new Langfuse version; the runtime never falls back to it.
+
+## 4.3 Prompt Management (Langfuse)
+
+`assessment`, `advice`, `companion` and `knowledge` resolve their prompts from Langfuse by the `production` label (experiments pin a version). New versions of the assessment, advice and companion prompts are registered with `python -m mlops.assessment.seed --model <id>`, `python -m mlops.advice.seed` and `python -m mlops.companion.seed`; a first version goes live, later ones are created unlabelled until promoted (`--promote`, or moving the label in the Langfuse UI). `advice` falls back to its in-repo bootstrap prompt when the `production` prompt cannot be fetched, and to a rule-based plan when the LLM call fails, so the companion stage always runs. `companion` likewise falls back to its bootstrap prompt, and to its deterministic template when the LLM call fails; the per-status tones live in the prompt version's `config.tones`.
 
 ---
 

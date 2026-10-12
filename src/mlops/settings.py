@@ -32,8 +32,6 @@ class Component(StrEnum):
     ADVICE = "advice"
     #: LLM — research document → probes + actions (offline authoring).
     KNOWLEDGE = "knowledge"
-    #: VLM — species identification, once per plant.
-    REGISTRY = "registry"
     #: LLM — 1st-person character companion dialogue projection.
     COMPANION = "companion"
 
@@ -78,10 +76,6 @@ def credentials_for(component: Component) -> LangfuseCredentials:
         Component.KNOWLEDGE: (
             s.langfuse_knowledge_public_key,
             s.langfuse_knowledge_secret_key,
-        ),
-        Component.REGISTRY: (
-            s.langfuse_registry_public_key,
-            s.langfuse_registry_secret_key,
         ),
         Component.COMPANION: (
             s.langfuse_companion_public_key,

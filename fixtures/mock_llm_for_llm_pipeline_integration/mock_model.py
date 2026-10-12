@@ -15,24 +15,49 @@ class MockChatModel(BaseChatModel):
     """LangChain mock chat model supporting canned responses, structured output, and call history."""
 
     responses: list[Any] = []
+    structured_responses: list[Any] = []
     call_history: list[Any] = []
 
 
-    def __init__(self, responses: Optional[list[Any]] = None, **kwargs: Any):
+    def __init__(
+        self,
+        responses: Optional[list[Any]] = None,
+        structured_responses: Optional[list[Any]] = None,
+        **kwargs: Any,
+    ):
+        """``responses`` answer plain chat calls (companion);
+        ``structured_responses`` answer ``with_structured_output`` calls (advice).
+
+        Without ``structured_responses`` both kinds of call share ``responses``.
+        """
         super().__init__(**kwargs)
         object.__setattr__(self, "responses", list(responses or []))
+        object.__setattr__(
+            self,
+            "structured_responses",
+            None if structured_responses is None else list(structured_responses),
+        )
         object.__setattr__(self, "call_history", [])
         object.__setattr__(self, "_idx", 0)
+        object.__setattr__(self, "_structured_idx", 0)
 
     def _get_next_response(self) -> Any:
-        if not self.responses:
+        return self._next_from(self.responses, "_idx")
+
+    def _get_next_structured_response(self) -> Any:
+        if self.structured_responses is None:
+            return self._get_next_response()
+        return self._next_from(self.structured_responses, "_structured_idx")
+
+    def _next_from(self, queue: list[Any], counter: str) -> Any:
+        if not queue:
             return "{}"
-        idx = getattr(self, "_idx", 0)
-        if idx < len(self.responses):
-            resp = self.responses[idx]
-            object.__setattr__(self, "_idx", idx + 1)
+        idx = getattr(self, counter, 0)
+        if idx < len(queue):
+            resp = queue[idx]
+            object.__setattr__(self, counter, idx + 1)
         else:
-            resp = self.responses[-1]
+            resp = queue[-1]
         return resp
 
     def _generate(
@@ -59,7 +84,8 @@ class MockChatModel(BaseChatModel):
 
     def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
         def _parse(input_val: Any) -> Any:
-            resp = self._get_next_response()
+            self.call_history.append(input_val)
+            resp = self._get_next_structured_response()
             if isinstance(resp, str):
                 try:
                     data = json.loads(resp)

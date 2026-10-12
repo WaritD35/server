@@ -57,9 +57,8 @@ plant is which.
 ## Inputs
 
 - Owner registration requests (via HTTP).
-- Species identification from the on-prem VLM API via `mlops.registry` — once,
-  at registration. _Not wired yet_ (`mlops.registry.identify_species` is still a
-  template); for now the species is set by the owner / an admin.
+- The species, set by the owner / an admin. (Automatic species identification
+  from a frame is not planned; there is no `mlops` component for it.)
 
 ## Outputs
 

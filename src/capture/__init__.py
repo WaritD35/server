@@ -8,6 +8,10 @@ Public surface:
 
 - :data:`router` — the ``/capture`` debug endpoints (superuser), mounted by
   ``main_web``.
+- :func:`capture_for_plant` — the pipeline's capture stage, called by
+  ``orchestrator``; returns a :class:`CaptureResult`. Raises
+  :class:`CaptureUnavailable` / :class:`CaptureBusy` when the plant cannot be
+  captured now.
 - :func:`get_frame_pair`, :func:`read_frame` — in-process interface for the
   other contexts; frames come back as :class:`FrameRef` / :class:`FramePair`.
   :class:`CaptureDeviceError` is the storage or webcam failure those calls raise.
@@ -16,11 +20,16 @@ Public surface:
 from capture.api import router
 from capture.interface import CaptureDeviceError, get_frame_pair, read_frame
 from capture.schemas import FramePair, FrameRef
+from capture.service import CaptureBusy, CaptureResult, CaptureUnavailable, capture_for_plant
 
 __all__ = [
+    "CaptureBusy",
     "CaptureDeviceError",
+    "CaptureResult",
+    "CaptureUnavailable",
     "FramePair",
     "FrameRef",
+    "capture_for_plant",
     "get_frame_pair",
     "read_frame",
     "router",

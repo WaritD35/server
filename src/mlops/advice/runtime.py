@@ -1,4 +1,31 @@
-"""Execution code for ``advice`` — diagnosis and ranked care plan generation."""
+"""Execution code for ``advice`` — diagnosis and ranked care plan generation.
+
+Owner: TODO
+
+``src/advice`` calls :func:`generate_advice` from the pipeline's advice stage:
+resolve the ``production`` prompt, call the LLM with structured output, trace it
+into the advice Langfuse project.
+
+Inputs are plain values — ``mlops`` must not import a bounded context, so the
+calling context flattens its own models onto :class:`AdviceInput`.
+
+## Degrading, not failing
+
+Advice runs between assessment and companion, and the companion stage must
+still run, so this function always returns a plan:
+
+```
+Langfuse chat prompt (production label) ──(unavailable)──▶ bootstrap prompt
+      │  compiled with AdviceInput                          (prompts.BOOTSTRAP_*)
+      ▼
+LLM.with_structured_output(GeneratedCarePlan) ──(fails)──▶ rule-based fallback plan
+```
+
+:class:`AdviceResult` says which path produced it: ``prompt_version`` is
+``None`` for the bootstrap prompt, and ``source`` is ``"fallback"`` for the
+rule-based plan. An experiment pins ``version`` and gets **no** prompt
+fallback — a run scored against the wrong prompt is worse than no run.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +33,22 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final
 
+from langfuse import propagate_attributes
 from pydantic import BaseModel, Field
 
-from mlops.client import get_callback_handler, is_configured
+from mlops.advice import prompts
+from mlops.client import get_callback_handler, get_client, is_configured
 from mlops.settings import PRODUCTION_LABEL, Component
 
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+    from langfuse.model import ChatPromptClient
+
 logger = logging.getLogger(__name__)
+
+COMPONENT: Final = Component.ADVICE
 
 
 class GeneratedCareAction(BaseModel):
@@ -43,6 +78,20 @@ class AdviceInput:
     trigger_reason: str | None = None
     confidence_agreement: float | None = None
 
+    def as_prompt_variables(self) -> dict[str, str]:
+        """The values the Langfuse template is compiled with.
+
+        Keys are exactly :data:`~mlops.advice.prompts.DIAGNOSE_VARIABLES`.
+        """
+        return {
+            "plant_id": self.plant_id,
+            "health_status": self.health_status,
+            "trigger_reason": self.trigger_reason or "Health change",
+            "symptoms": json.dumps(self.symptoms),
+            "observation_history": json.dumps(self.observation_history),
+            "knowledge_context": self.knowledge_context or "No specific knowledge retrieved.",
+        }
+
 
 @dataclass(frozen=True)
 class AdviceResult:
@@ -54,21 +103,43 @@ class AdviceResult:
     confidence: float
     actions: list[dict[str, Any]]
     trace_id: str | None = None
+    #: ``llm`` — the model answered; ``fallback`` — the rule-based plan.
+    source: str = "llm"
+    prompt_name: str = prompts.DIAGNOSE_PROMPT
+    #: The Langfuse version used; ``None`` when the bootstrap prompt stood in.
+    prompt_version: int | None = None
+
+    @property
+    def prompt_ref(self) -> str:
+        """``advice/diagnose@3``, or ``advice/diagnose@bootstrap``."""
+        return f"{self.prompt_name}@{self.prompt_version or 'bootstrap'}"
 
 
-DEFAULT_SYSTEM_PROMPT = """You are an expert Plant Care Advisor Agent.
-Your job is to diagnose plant health issues based on visual observations
-and recommend prioritized care actions.
+@dataclass(frozen=True)
+class AdviceConfig:
+    """Model hyper-parameters, read from the Langfuse prompt version's ``config``.
 
-PROCESS GUIDELINES:
-1. Examine the symptoms, history, and botanical knowledge provided.
-2. Formulate a short headline status_label (e.g. "Overwatering stress", "Dry tip warning").
-3. Formulate a clinical assessment explaining the likely root cause.
-4. Provide prioritized practical care actions (priority 1 = most urgent).
-   - action: full detailed botanical instruction string.
-   - label: concise 2-3 word button label (e.g. "Pause water", "Move plant", "Drain tray").
-   - type: categorical type: "water" | "move" | "inspect" | "other".
-"""
+    ``model`` is optional here, unlike ``knowledge`` and ``assessment``: advice
+    reaches its model through :func:`mlops.factory.get_llm`, where the deployment
+    picks the provider (``LLM_PROVIDER=openai|ollama``) and a model id only means
+    something to one of them. A version that names ``model`` pins it; one that
+    does not runs on the provider's default model.
+    """
+
+    model: str | None = None
+    temperature: float = 0.2
+
+    @classmethod
+    def from_prompt_config(
+        cls, config: Any, *, overrides: dict[str, Any] | None = None
+    ) -> AdviceConfig:
+        raw: dict[str, Any] = dict(config) if isinstance(config, dict) else {}
+        raw.update(overrides or {})
+        unknown = set(raw) - {"model", "temperature"}
+        if unknown:
+            logger.warning("ignoring unknown advice prompt config key(s): %s", sorted(unknown))
+        model = str(raw.get("model") or "").strip() or None
+        return cls(model=model, temperature=float(raw.get("temperature", 0.2)))
 
 
 def _generate_fallback(payload: AdviceInput) -> GeneratedCarePlan:
@@ -101,6 +172,27 @@ def _generate_fallback(payload: AdviceInput) -> GeneratedCarePlan:
     )
 
 
+def _resolve_prompt(label: str | None, version: int | None) -> ChatPromptClient | None:
+    """The Langfuse version to run, or ``None`` to use the bootstrap prompt.
+
+    Only the request path (no pinned ``version``) may fall back.
+    """
+    if version is not None:
+        return prompts.get(prompts.DIAGNOSE_PROMPT, label=label, version=version)
+    if not is_configured(COMPONENT):
+        logger.debug("advice Langfuse project not configured; using the bootstrap prompt")
+        return None
+    try:
+        return prompts.get(prompts.DIAGNOSE_PROMPT, label=label)
+    except Exception:
+        logger.warning(
+            "cannot fetch Langfuse prompt %r; using the bootstrap prompt",
+            prompts.DIAGNOSE_PROMPT,
+            exc_info=True,
+        )
+        return None
+
+
 def generate_advice(
     payload: AdviceInput,
     *,
@@ -108,54 +200,75 @@ def generate_advice(
     version: int | None = None,
     overrides: dict[str, Any] | None = None,
 ) -> AdviceResult:
-    """Produce a diagnosis and ranked actions."""
-    from langchain_core.prompts import ChatPromptTemplate
+    """Produce a diagnosis and ranked actions.
 
-    care_plan_id = f"cp_{uuid.uuid4().hex[:12]}"
-    from langchain_core.callbacks import BaseCallbackHandler
-    callbacks: list[BaseCallbackHandler] = []
-    if is_configured(Component.ADVICE):
-        try:
-            callbacks.append(get_callback_handler(Component.ADVICE))
-        except Exception:
-            logger.warning("Failed to initialise Langfuse callback for advice", exc_info=True)
+    ``label`` / ``version`` / ``overrides`` exist so ``experiment.py`` can pin a
+    prompt version and drive this exact function — experiments and production
+    then share one code path. The request path passes none of them.
+    """
+    prompt = _resolve_prompt(label, version)
+    variables = payload.as_prompt_variables()
+    if prompt is not None:
+        messages = prompt.compile(**variables)
+        config = AdviceConfig.from_prompt_config(prompt.config, overrides=overrides)
+    else:
+        messages = prompts.compile_bootstrap(variables)
+        config = AdviceConfig.from_prompt_config(prompts.BOOTSTRAP_CONFIG, overrides=overrides)
 
-    # Build prompt inputs
-    symptoms_text = json.dumps(payload.symptoms)
-    history_text = json.dumps(payload.observation_history)
-    knowledge_text = payload.knowledge_context or "No specific knowledge retrieved."
-
-    user_content = (
-        f"Plant ID: {payload.plant_id}\n"
-        f"Health Status: {payload.health_status}\n"
-        f"Trigger Reason: {payload.trigger_reason or 'Health change'}\n"
-        f"Symptoms: {symptoms_text}\n"
-        f"Observation History (Past Days): {history_text}\n"
-        f"Botanical Knowledge Context: {knowledge_text}\n\n"
-        "Please provide the diagnosis and prioritized care plan."
-    )
-
+    source = "llm"
+    trace_id: str | None = None
     try:
-        from mlops.factory import get_llm
-        model = get_llm(Component.ADVICE, temperature=0.2)
-        structured_llm = model.with_structured_output(GeneratedCarePlan)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", DEFAULT_SYSTEM_PROMPT),
-            ("user", user_content),
-        ])
-        chain = prompt | structured_llm
-        from langchain_core.runnables import RunnableConfig
-        cfg: RunnableConfig = {"callbacks": callbacks} if callbacks else {}
-        raw = chain.invoke({}, config=cfg)
-        output = GeneratedCarePlan.model_validate(raw)
+        output, trace_id = _invoke(messages, config, prompt, payload)
     except Exception:
         # Graceful fallback on LLM failure or missing API key during local test runs
+        logger.warning("advice LLM call failed; using the rule-based plan", exc_info=True)
         output = _generate_fallback(payload)
+        source = "fallback"
 
     return AdviceResult(
-        care_plan_id=care_plan_id,
+        care_plan_id=f"cp_{uuid.uuid4().hex[:12]}",
         status_label=output.status_label,
         assessment=output.assessment,
         confidence=output.confidence,
         actions=[action.model_dump() for action in output.actions],
+        trace_id=trace_id,
+        source=source,
+        prompt_name=prompt.name if prompt is not None else prompts.DIAGNOSE_PROMPT,
+        prompt_version=prompt.version if prompt is not None else None,
     )
+
+
+def _invoke(
+    messages: Any,
+    config: AdviceConfig,
+    prompt: ChatPromptClient | None,
+    payload: AdviceInput,
+) -> tuple[GeneratedCarePlan, str | None]:
+    """One structured-output call, traced when the advice project is configured."""
+    # Imported here so tests (and the mock pipeline fixtures) can patch it.
+    from mlops.factory import get_llm
+
+    model = get_llm(COMPONENT, temperature=config.temperature, model_override=config.model)
+    structured = model.with_structured_output(GeneratedCarePlan)
+    chat = [(m["role"], m["content"]) for m in messages]
+
+    if not is_configured(COMPONENT):
+        return GeneratedCarePlan.model_validate(structured.invoke(chat)), None
+
+    invoke_config: RunnableConfig = {
+        "callbacks": [get_callback_handler(COMPONENT)],
+        "run_name": "diagnose",
+    }
+    # One trace per plan; `propagate_attributes(prompt=…)` ties the generation to
+    # the prompt version, so the Langfuse UI shows each version's real use.
+    with (
+        get_client(COMPONENT).start_as_current_observation(
+            name="advice.generate_advice",
+            as_type="chain",
+            input={"plant_id": payload.plant_id, "health_status": payload.health_status},
+        ) as span,
+        propagate_attributes(prompt=prompt),
+    ):
+        output = GeneratedCarePlan.model_validate(structured.invoke(chat, config=invoke_config))
+        span.update(output={"status_label": output.status_label, "actions": len(output.actions)})
+        return output, span.trace_id
