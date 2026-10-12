@@ -64,6 +64,10 @@ class ObservationRead(BaseModel):
     observations: list[dict[str, Any]]
     consensus: dict[str, Any] | None = None
     image_refs: list[str] | None = None
+    #: The approved ``knowledge`` probe set the checks came from, if any.
+    probe_set_id: uuid.UUID | None = None
+    #: One entry per check asked (``slug``, ``care_need``, ``answer``, ``fired``, …).
+    probe_results: list[dict[str, Any]] = Field(default_factory=list)
     description: str | None = None
     companion_message: str | None = None
     created_at: datetime

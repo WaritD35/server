@@ -22,6 +22,7 @@ from assessment.schemas import HealthStatus
 from mlops.assessment import (
     AssessmentRunError,
     AssessmentUnavailableError,
+    ProbeCheck,
     ProbeInput,
     ProbeVerdict,
     backends,
@@ -228,12 +229,130 @@ def test_the_prompt_is_compiled_with_exactly_the_declared_variables(
     assert prompt.compiled_with[0]["plant_knowledge"] == "Plant knowledge:\nDroops when dry."
 
 
-def test_no_knowledge_compiles_to_an_empty_section() -> None:
+def test_no_knowledge_and_no_checks_compile_to_empty_sections() -> None:
     probe = ProbeInput(
         plant_id="p", species="s", plant_knowledge="  ", previous_image=b"", current_image=b""
     )
 
-    assert probe.as_prompt_variables() == {"plant_knowledge": ""}
+    assert probe.as_prompt_variables() == {"plant_knowledge": "", "probe_checks": ""}
+
+
+# --------------------------------------------------------------------------- #
+# species-specific checks (approved knowledge probes)
+# --------------------------------------------------------------------------- #
+
+DROOP = ProbeCheck(
+    slug="water_deficit.leaf_droop",
+    question="Are the leaves drooping?",
+    worse_looks_like="Leaves hang below the pot rim.",
+    better_looks_like="Leaves stand upright.",
+    not_this="Natural arching of old leaves.",
+)
+SPOTS = ProbeCheck(
+    slug="pest.leaf_spots",
+    question="Are there pale stippled spots?",
+    worse_looks_like="Fine pale dots on the leaf surface.",
+    better_looks_like="Even leaf colour.",
+    not_this="Water marks after misting.",
+)
+WITH_CHECKS = dataclasses.replace(PROBE, checks=(DROOP, SPOTS))
+
+
+def finding(slug: str, answer: str, evidence: str = "") -> dict[str, str]:
+    return {"slug": slug, "answer": answer, "evidence": evidence}
+
+
+def test_checks_are_listed_in_the_prompt_section_in_order() -> None:
+    section = WITH_CHECKS.as_prompt_variables()["probe_checks"]
+
+    assert section.index("water_deficit.leaf_droop") < section.index("pest.leaf_spots")
+    assert "- water_deficit.leaf_droop: Are the leaves drooping?" in section
+    assert "yes looks like: Leaves hang below the pot rim." in section
+    assert "not this: Natural arching of old leaves." in section
+
+
+def test_each_check_is_voted_on_across_the_runs(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_backend(
+        monkeypatch,
+        FakeBackend(
+            answer(probe_findings=[finding(DROOP.slug, "yes", "tips hang down"),
+                                   finding(SPOTS.slug, "no")]),
+            answer(probe_findings=[finding(DROOP.slug, "yes", "leaves hang well below the rim"),
+                                   finding(SPOTS.slug, "no")]),
+            answer(probe_findings=[finding(DROOP.slug, "no"), finding(SPOTS.slug, "Cannot_Tell")]),
+        ),
+    )
+
+    verdict = run_probe(WITH_CHECKS)
+
+    droop, spots = verdict.probe_results
+    assert (droop["slug"], droop["answer"], droop["fired"]) == (DROOP.slug, "yes", True)
+    assert droop["votes"] == {"yes": 2, "no": 1, "cannot_tell": 0}
+    assert droop["agreement"] == pytest.approx(0.667)
+    assert droop["evidence"] == "leaves hang well below the rim"
+    assert (spots["answer"], spots["fired"], spots["evidence"]) == ("no", False, "")
+
+
+def test_a_tie_and_a_missing_answer_lean_cautious(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that leaves a check out counts as cannot_tell; a tie goes to yes."""
+    use_backend(
+        monkeypatch,
+        FakeBackend(
+            answer(probe_findings=[finding(DROOP.slug, "yes")]),
+            answer(probe_findings=[finding(DROOP.slug, "no")]),
+            answer(probe_findings=[]),
+        ),
+    )
+
+    droop, spots = run_probe(WITH_CHECKS).probe_results
+
+    assert droop["answer"] == "yes"
+    assert spots["answer"] == "cannot_tell"
+    assert spots["votes"]["cannot_tell"] == 3
+
+
+def test_an_unknown_slug_is_sent_back_for_a_repair(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = use_backend(
+        monkeypatch,
+        FakeBackend(
+            answer(probe_findings=[finding("made_up.check", "yes")]),
+            answer(probe_findings=[finding(DROOP.slug, "no")]),
+        ),
+    )
+
+    verdict = run_probe(dataclasses.replace(WITH_CHECKS, checks=(DROOP,)))
+
+    assert "unknown slug 'made_up.check'" in backend.calls[1]["prompt"]
+    assert verdict.probe_results[0]["answer"] == "no"
+
+
+def test_a_prompt_without_the_checks_section_records_no_results(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    old = FakePrompt(dict(CONFIG))
+    old.variables = ["plant_knowledge"]  # type: ignore[attr-defined]
+    monkeypatch.setattr(runtime.prompts, "get", lambda *_, **__: old)
+    use_backend(monkeypatch, FakeBackend(answer()))
+
+    with caplog.at_level("WARNING"):
+        verdict = run_probe(WITH_CHECKS)
+
+    assert verdict.probe_results == []
+    assert any("probe_checks" in r.getMessage() for r in caplog.records)
+
+
+def test_without_checks_there_are_no_probe_results(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_backend(monkeypatch, FakeBackend(answer()))
+
+    assert run_probe(PROBE).probe_results == []
 
 
 def test_an_experiment_can_override_runs_and_sampling(

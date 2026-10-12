@@ -16,14 +16,21 @@ one observation, then apply the 0-token Event Engine.
 - Resolve the species name with `knowledge.interface.get_species` (falls back to
   `species_code` with a warning) and the prompt's knowledge section with
   `get_care_knowledge` (`""` + warning when missing).
+- Ask the species' **approved probes** (`knowledge.get_species_probes`) as
+  checks in the same VLM prompt: screening probes first, then by `priority`, at
+  most `MAX_PROBE_CHECKS` (8). A stale set is still used, with a warning.
 - Map the `ProbeVerdict` onto the observation: `health_status` ← verdict,
   `confidence` ← `consensus.agreement`, `observations_json` ← verdict
   observations (`type`, `severity`, `description`), `consensus_json` ←
   `{agreement, runs, model_stated_average}`, `image_refs_json` ←
   `s3://{frames_derived bucket}/{key}` for previous then current,
-  `timestamp` ← the current capture's `captured_at`.
-- `evaluate_observation` — unchanged 0-token Event Engine + milestone detection
-  on the stored observation (orchestrator runs this after `assess_frames`).
+  `timestamp` ← the current capture's `captured_at`, `probe_set_id` and
+  `probe_results_json` ← each check's voted answer plus its `care_need` and
+  `question` (both `NULL` when no check was asked).
+- `evaluate_observation` — 0-token Event Engine + milestone detection on the
+  stored observation (orchestrator runs this after `assess_frames`). A check
+  that fires and did not fire on the previous observation is a
+  `CARE_ADVICE_REQUIRED` trigger with the check's slug as `primary_symptom`.
 
 ## Data it owns
 

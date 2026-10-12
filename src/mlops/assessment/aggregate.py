@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 from mlops.assessment.schemas import RunObservation
@@ -34,6 +36,10 @@ class ProbeVerdict:
     #: ``agreement`` (share of runs behind the verdict), ``runs`` (valid runs
     #: aggregated) and ``model_stated_average`` (mean stated confidence or None).
     consensus: dict[str, float | int | None]
+    #: One entry per species-specific check, in the order given: ``slug``,
+    #: ``answer`` (yes | no | cannot_tell), ``fired``, ``agreement``, ``votes``,
+    #: ``evidence``. Empty when the probe ran without checks.
+    probe_results: list[dict[str, Any]] = dataclass_field(default_factory=list)
     #: Langfuse trace id, so the caller can correlate its own row with the run.
     trace_id: str | None = None
 
@@ -340,8 +346,53 @@ def consensus_observations(decisions: list[RunDecision]) -> list[dict[str, str]]
     )
 
 
-def aggregate_observations(runs: list[RunObservation]) -> ProbeVerdict:
-    """Aggregate repeated, already-validated VLM runs into one verdict."""
+#: Tie-break order for a check's answer: the cautious one wins, as for health.
+PROBE_ANSWER_ORDER: tuple[str, ...] = ("yes", "cannot_tell", "no")
+
+
+def aggregate_probe_findings(
+    runs: list[RunObservation], slugs: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Majority answer per check over every valid run, in ``slugs`` order.
+
+    A run that left a check out counts as ``cannot_tell``. A check fires when the
+    majority answer is ``yes``; ``agreement`` is the share of runs behind that
+    answer, and ``evidence`` the most detailed ``yes`` description.
+    """
+
+    results: list[dict[str, Any]] = []
+    for slug in slugs:
+        votes: Counter[str] = Counter()
+        evidence: list[str] = []
+        for run in runs:
+            finding = next((f for f in run.probe_findings if f.slug == slug), None)
+            answer = finding.answer if finding is not None else "cannot_tell"
+            votes[answer] += 1
+            if finding is not None and answer == "yes" and finding.evidence.strip():
+                evidence.append(finding.evidence.strip())
+        top = max(votes.values())
+        winner = next(a for a in PROBE_ANSWER_ORDER if votes[a] == top)
+        results.append(
+            {
+                "slug": slug,
+                "answer": winner,
+                "fired": winner == "yes",
+                "agreement": round(votes[winner] / len(runs), 3),
+                "votes": {a: votes[a] for a in ("yes", "no", "cannot_tell")},
+                "evidence": max(evidence, key=len) if winner == "yes" and evidence else "",
+            }
+        )
+    return results
+
+
+def aggregate_observations(
+    runs: list[RunObservation], probe_slugs: Sequence[str] = ()
+) -> ProbeVerdict:
+    """Aggregate repeated, already-validated VLM runs into one verdict.
+
+    ``probe_slugs`` are the species-specific checks the prompt listed; their
+    answers are voted on independently of the health status.
+    """
 
     if not runs:
         raise AggregateError("At least one observation is required.")
@@ -370,4 +421,5 @@ def aggregate_observations(runs: list[RunObservation]) -> ProbeVerdict:
                 else None
             ),
         },
+        probe_results=aggregate_probe_findings(runs, probe_slugs),
     )

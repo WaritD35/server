@@ -7,6 +7,7 @@ What ``src/assessment`` imports::
     from mlops.assessment import (
         AssessmentRunError,
         AssessmentUnavailableError,
+        ProbeCheck,
         ProbeInput,
         run_probe,
     )
@@ -18,6 +19,7 @@ experiments and scorers. Add modules as the work needs them.
 from mlops.assessment.runtime import (
     AssessmentRunError,
     AssessmentUnavailableError,
+    ProbeCheck,
     ProbeInput,
     ProbeVerdict,
     run_probe,
@@ -26,6 +28,7 @@ from mlops.assessment.runtime import (
 __all__ = [
     "AssessmentRunError",
     "AssessmentUnavailableError",
+    "ProbeCheck",
     "ProbeInput",
     "ProbeVerdict",
     "run_probe",

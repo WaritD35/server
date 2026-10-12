@@ -34,9 +34,11 @@ PROBE_PROMPT_TYPE: Final[str] = "text"
 
 #: The variables the ``PROBE_PROMPT`` template is compiled with — the contract
 #: between the prompt author and :mod:`mlops.assessment.runtime`.
-#: ``plant_knowledge`` is the whole optional section (``"Plant knowledge:\n…"``),
-#: or ``""`` when the species has none, so the template needs no conditional.
-PROBE_VARIABLES: Final[tuple[str, ...]] = ("plant_knowledge",)
+#: Both are whole optional sections, or ``""``, so the template needs no
+#: conditional: ``plant_knowledge`` (``"Plant knowledge:\n…"``) and
+#: ``probe_checks`` (the species' approved ``knowledge`` probes, one block each).
+#: A version without ``{{probe_checks}}`` still runs; its checks are not asked.
+PROBE_VARIABLES: Final[tuple[str, ...]] = ("plant_knowledge", "probe_checks")
 
 #: How long a fetched prompt is reused before Langfuse is asked again. This is
 #: the request path, so a promoted label takes effect within a minute.
@@ -55,6 +57,8 @@ taken from the same camera position at different times.
 - Image 2 is the current photo.
 
 {{plant_knowledge}}
+
+{{probe_checks}}
 
 Describe only what is visible. Do not guess at causes, and do not give care advice.
 If something cannot be seen clearly, say "cannot_tell" instead of guessing.
@@ -79,7 +83,14 @@ Return exactly one JSON object and nothing else, with this shape:
     }
   ],
   "comparison_summary": "<one or two sentences comparing the two photos>",
-  "model_confidence": <a number from 0.0 to 1.0>
+  "model_confidence": <a number from 0.0 to 1.0>,
+  "probe_findings": [
+    {
+      "slug": "<the id of a species-specific check>",
+      "answer": "yes | no | cannot_tell",
+      "evidence": "<what in Image 2 supports the answer>"
+    }
+  ]
 }
 
 Rules:
@@ -89,6 +100,10 @@ Rules:
 - Observation types: leaf_yellowing, brown_edges, drooping, curling, visible_damage,
   discoloration, other.
 - Use only the values listed for "visible_stress_level", "type" and "severity".
+- "probe_findings" has exactly one entry per species-specific check listed above, and
+  an empty list when none are listed. Answer "yes" only when Image 2 looks like the
+  check's "yes looks like" and not like its "not this"; answer "cannot_tell" when
+  Image 2 does not show it clearly.
 """
 
 #: The ``config`` :mod:`mlops.assessment.seed` registers with
@@ -97,7 +112,9 @@ Rules:
 BOOTSTRAP_CONFIG: Final[dict[str, Any]] = {
     "runs": 5,
     "temperature": 0.7,
-    "max_new_tokens": 1024,
+    # Room for one probe_findings entry per approved check on top of the
+    # observation itself.
+    "max_new_tokens": 1536,
 }
 
 

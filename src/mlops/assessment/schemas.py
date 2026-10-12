@@ -62,6 +62,29 @@ class CurrentObservation(BaseModel):
         return _normalized(value)
 
 
+ProbeAnswer = Literal["yes", "no", "cannot_tell"]
+
+
+class ProbeFinding(BaseModel):
+    """The answer to one species-specific check (an approved ``knowledge`` probe)."""
+
+    #: The check's slug exactly as the prompt listed it.
+    slug: str = Field(min_length=1)
+    #: ``yes`` = Image 2 looks like the check's "worse" description.
+    answer: ProbeAnswer
+    evidence: str = ""
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def _strip_slug(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("answer", mode="before")
+    @classmethod
+    def _normalize_answer(cls, value: Any) -> Any:
+        return _normalized(value)
+
+
 class RunObservation(BaseModel):
     """One run's full answer about the previous/current frame pair."""
 
@@ -71,3 +94,21 @@ class RunObservation(BaseModel):
     current_observations: list[CurrentObservation]
     comparison_summary: str
     model_confidence: float = Field(ge=0.0, le=1.0)
+    #: One entry per check the prompt listed; empty when it listed none. A prompt
+    #: version without the checks section never asks for it, hence the default.
+    probe_findings: list[ProbeFinding] = Field(default_factory=list)
+
+    def check_probe_slugs(self, slugs: frozenset[str]) -> None:
+        """Reject findings for checks that were not asked, or answered twice.
+
+        A missing finding is allowed (it counts as ``cannot_tell``); an invented
+        or duplicated slug means the model did not follow the list, so the run
+        goes back for a repair.
+        """
+        seen: set[str] = set()
+        for finding in self.probe_findings:
+            if finding.slug not in slugs:
+                raise ValueError(f"probe_findings: unknown slug {finding.slug!r}")
+            if finding.slug in seen:
+                raise ValueError(f"probe_findings: slug {finding.slug!r} answered twice")
+            seen.add(finding.slug)

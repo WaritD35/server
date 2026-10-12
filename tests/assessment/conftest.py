@@ -14,7 +14,7 @@ import pytest
 from assessment_fakes import FakeFrames, FakeProbe
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -26,7 +26,8 @@ from core.users.dependencies import get_current_active_user
 from core.users.models import User
 from knowledge import models as knowledge_models  # noqa: F401 - register tables
 from knowledge.db import Base as KnowledgeBase
-from knowledge.models import ResearchDocument, Species
+from knowledge.db import create_views
+from knowledge.models import Probe, ProbeSet, ResearchDocument, Species
 from registry import models as registry_models  # noqa: F401 - register tables
 from registry.db import Base as RegistryBase
 from registry.models import Plant
@@ -45,9 +46,14 @@ def session_factory() -> Iterator[sessionmaker[Session]]:
     )
     for base in _BASES:
         base.metadata.create_all(engine)
+    # The approved-probe lookup reads staleness from this view.
+    with engine.begin() as conn:
+        create_views(conn)
     try:
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
+        with engine.begin() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS probe_set_freshness"))
         for base in reversed(_BASES):
             base.metadata.drop_all(engine)
         engine.dispose()
@@ -97,6 +103,53 @@ def add_species(session_factory: sessionmaker[Session]) -> Callable[..., None]:
                     )
                 )
             s.commit()
+
+    return _add
+
+
+@pytest.fixture
+def add_probes(session_factory: sessionmaker[Session]) -> Callable[..., uuid.UUID]:
+    """``add_probes((slug, priority, is_screening), ...)`` → an approved ``spath`` probe set.
+
+    Registers the species and an active research document too; returns the set's id.
+    """
+
+    def _add(*specs: tuple[str, int, bool], species_code: str = "spath") -> uuid.UUID:
+        with session_factory() as s:
+            if s.get(Species, species_code) is None:
+                s.add(Species(species_code=species_code, scientific_name="Spathiphyllum wallisii"))
+                s.flush()
+            document = ResearchDocument(
+                species_code=species_code, title="care", body="Droops when dry.", author="alice"
+            )
+            s.add(document)
+            s.flush()
+            probe_set = ProbeSet(
+                research_document_id=document.id,
+                species_code=species_code,
+                source_content_hash=document.content_hash,
+                llm_model="test-model",
+                status="approved",
+            )
+            s.add(probe_set)
+            s.flush()
+            for slug, priority, is_screening in specs:
+                care_need = slug.split(".", 1)[0]
+                s.add(
+                    Probe(
+                        probe_set_id=probe_set.id,
+                        slug=slug,
+                        care_need=care_need,
+                        priority=priority,
+                        is_screening=is_screening,
+                        question=f"Is there {slug}?",
+                        worse_looks_like=f"{slug} visible",
+                        better_looks_like=f"no {slug}",
+                        not_this="a look-alike",
+                    )
+                )
+            s.commit()
+            return probe_set.id
 
     return _add
 

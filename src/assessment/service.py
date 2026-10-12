@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,8 +16,8 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_care_knowledge, get_species
-from mlops.assessment import ProbeInput, run_probe
+from knowledge.interface import get_care_knowledge, get_species, get_species_probes
+from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
 logger = logging.getLogger(__name__)
@@ -31,11 +32,25 @@ SEVERITY_RANKS = {
     "severe": 3,
 }
 
+#: Most approved checks put into one prompt. Every check lengthens the prompt and
+#: the answer, and a small VLM follows a long list less reliably.
+MAX_PROBE_CHECKS = 8
+
 HEALTH_STATUS_RANKS = {
     HealthStatus.HEALTHY: 1,
     HealthStatus.POSSIBLY_UNHEALTHY: 2,
     HealthStatus.UNHEALTHY: 3,
 }
+
+
+def _fired_probes(obs: Observation) -> dict[str, dict[str, Any]]:
+    """The checks that fired on ``obs``, by slug, in the order they were asked."""
+    results = obs.probe_results_json if isinstance(obs.probe_results_json, list) else []
+    return {
+        r["slug"]: r
+        for r in results
+        if isinstance(r, dict) and r.get("fired") and isinstance(r.get("slug"), str)
+    }
 
 
 def evaluate_rules(
@@ -68,15 +83,25 @@ def evaluate_rules(
     observations_list = (
         new_obs.observations_json if isinstance(new_obs.observations_json, list) else []
     )
+    fired = _fired_probes(new_obs)
 
     # 2. First observation check
     if prev_obs is None:
-        if new_obs.health_status == HealthStatus.HEALTHY.value and len(observations_list) == 0:
+        if (
+            new_obs.health_status == HealthStatus.HEALTHY.value
+            and len(observations_list) == 0
+            and not fired
+        ):
             return TriggerResult(
                 decision=TriggerDecision.NO_ACTION,
                 reasoning="Baseline observation recorded as healthy with no symptoms.",
             )
-        primary = observations_list[0].get("type") if observations_list else "unhealthy_status"
+        if observations_list:
+            primary = observations_list[0].get("type")
+        elif fired:
+            primary = next(iter(fired))
+        else:
+            primary = "unhealthy_status"
         return TriggerResult(
             decision=TriggerDecision.CARE_ADVICE_REQUIRED,
             primary_symptom=primary,
@@ -114,6 +139,19 @@ def evaluate_rules(
                     primary_symptom=s_type,
                     reasoning=f"New symptom '{s_type}' appeared (severity: {obs.get('severity')}).",
                 )
+
+    # 4b. Check for an approved species-specific check that newly fired
+    prev_fired = _fired_probes(prev_obs)
+    for slug, result in fired.items():
+        if slug not in prev_fired:
+            return TriggerResult(
+                decision=TriggerDecision.CARE_ADVICE_REQUIRED,
+                primary_symptom=slug,
+                reasoning=(
+                    f"Check '{slug}' ({result.get('care_need', 'unknown need')}) fired: "
+                    f"{result.get('question', '')}"
+                ).strip(),
+            )
 
     # 5. Check for severity escalation
     for obs in observations_list:
@@ -400,6 +438,7 @@ def assess_frames(
         )
         knowledge = ""
 
+    probe_set_id, probes = _approved_checks(session, plant.species_code)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
@@ -408,8 +447,11 @@ def assess_frames(
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),
+            checks=tuple(check for check, _ in probes),
         )
     )
+    meta = {check.slug: extra for check, extra in probes}
+    probe_results = [{**result, **meta.get(result["slug"], {})} for result in verdict.probe_results]
     health_status = HealthStatus(verdict.health_status)
     agreement = verdict.consensus.get("agreement")
     bucket = bucket_names()["frames_derived"]
@@ -425,8 +467,54 @@ def assess_frames(
             f"s3://{bucket}/{pair.previous.object_key}",
             f"s3://{bucket}/{pair.current.object_key}",
         ],
+        # Only when the checks were actually asked: an observation without
+        # results must not read as "every check answered no".
+        probe_set_id=probe_set_id if probe_results else None,
+        probe_results_json=probe_results or None,
     )
     session.add(observation)
     session.commit()
     session.refresh(observation)
     return observation
+
+
+def _approved_checks(
+    session: Session, species_code: str
+) -> tuple[uuid.UUID | None, list[tuple[ProbeCheck, dict[str, Any]]]]:
+    """The species' approved probes as VLM checks, in the order to ask them.
+
+    Screening checks come first, then by ``priority`` (1 = first), capped at
+    :data:`MAX_PROBE_CHECKS`. Each check is paired with what the stored result
+    keeps beside the answer (``care_need``, ``question``), so the rules engine
+    and later stages need not ask ``knowledge`` again.
+    """
+    bundle = get_species_probes(session, species_code)
+    if bundle is None or not bundle.probes:
+        return None, []
+    if bundle.is_stale:
+        logger.warning(
+            "approved probe set %s for %s is stale (its research text changed); using it",
+            bundle.probe_set_id,
+            species_code,
+        )
+    ordered = sorted(bundle.probes, key=lambda p: (not p.is_screening, p.priority))
+    if len(ordered) > MAX_PROBE_CHECKS:
+        logger.info(
+            "species %s has %d approved checks; asking the first %d",
+            species_code,
+            len(ordered),
+            MAX_PROBE_CHECKS,
+        )
+    return bundle.probe_set_id, [
+        (
+            ProbeCheck(
+                slug=p.slug,
+                question=p.question,
+                worse_looks_like=p.worse_looks_like,
+                better_looks_like=p.better_looks_like,
+                not_this=p.not_this,
+            ),
+            {"care_need": p.care_need, "question": p.question},
+        )
+        for p in ordered[:MAX_PROBE_CHECKS]
+    ]

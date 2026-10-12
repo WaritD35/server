@@ -177,10 +177,21 @@ UI, and running the script again creates another version rather than updating v1
 ### What `assessment` needs in Langfuse
 
 A **text** prompt named **`assessment/plant_observation_pair`** with the
-`production` label, compiled with exactly `PROBE_VARIABLES = ("plant_knowledge",)`
-(the whole optional `Plant knowledge:\n…` section, or `""` when none). The
-runtime sends the compiled text as the text part of a single user message next
-to the two images.
+`production` label, compiled with exactly
+`PROBE_VARIABLES = ("plant_knowledge", "probe_checks")`. Both are whole optional
+sections or `""`: the species' care text, and its **approved `knowledge` probes**
+(one block per check: slug, question, what "yes" and "no" look like, and what it
+is not). The runtime sends the compiled text as the text part of a single user
+message next to the two images.
+
+The answer carries one `probe_findings` entry per listed check (`slug`,
+`answer` = `yes | no | cannot_tell`, `evidence`). An unknown or duplicated slug
+sends the run back for its repair; a missing one counts as `cannot_tell`. Each
+check is voted on over all valid runs like the health status (ties lean to
+`yes`) and comes back in `ProbeVerdict.probe_results`. A version without
+`{{probe_checks}}` still runs, but its checks are not asked or recorded (a
+warning is logged) — register the new bootstrap text with the seed CLI to
+start asking them.
 
 Its `config` **must** carry `runs`, `temperature`, `max_new_tokens` and `model`.
 A missing key, `runs` outside `1..8`, or `max_new_tokens` outside `1..2048` raises

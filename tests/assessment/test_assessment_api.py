@@ -81,6 +81,8 @@ def test_run_assesses_the_latest_pair_and_returns_the_observation(
         "observations",
         "consensus",
         "image_refs",
+        "probe_set_id",
+        "probe_results",
         "description",
         "companion_message",
         "created_at",

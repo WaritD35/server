@@ -36,6 +36,14 @@ class Observation(Base):
     image_refs_json: Mapped[list[Any] | None] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
+    # ``knowledge.probe_set.id`` the checks came from — resolved through
+    # ``knowledge``'s interface, no FK. ``NULL`` when the species had none.
+    probe_set_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # One entry per approved check asked: slug, care_need, question, answer
+    # (yes | no | cannot_tell), fired, agreement, votes, evidence.
+    probe_results_json: Mapped[list[Any] | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
     description: Mapped[str | None] = mapped_column(Text)
     companion_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

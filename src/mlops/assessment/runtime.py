@@ -41,6 +41,7 @@ raises :class:`AssessmentUnavailableError`, which callers map to 503.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
@@ -70,11 +71,14 @@ if TYPE_CHECKING:
 __all__ = [
     "AssessmentRunError",
     "AssessmentUnavailableError",
+    "ProbeCheck",
     "ProbeConfig",
     "ProbeInput",
     "ProbeVerdict",
     "run_probe",
 ]
+
+logger = logging.getLogger(__name__)
 
 COMPONENT: Final = Component.ASSESSMENT
 
@@ -110,6 +114,28 @@ class AssessmentRunError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ProbeCheck:
+    """One species-specific check: an approved ``knowledge`` probe, flattened.
+
+    The VLM answers ``yes`` when Image 2 looks like ``worse_looks_like``.
+    """
+
+    slug: str
+    question: str
+    worse_looks_like: str
+    better_looks_like: str
+    not_this: str
+
+    def as_prompt_lines(self) -> list[str]:
+        return [
+            f"- {self.slug}: {self.question}",
+            f"  yes looks like: {self.worse_looks_like}",
+            f"  no looks like: {self.better_looks_like}",
+            f"  not this: {self.not_this}",
+        ]
+
+
+@dataclass(frozen=True)
 class ProbeInput:
     """What ``src/assessment`` passes in."""
 
@@ -126,14 +152,30 @@ class ProbeInput:
     #: The orchestrator (or debug) run, for tracing only: it goes on the
     #: Langfuse trace's metadata so a failed ``pipeline_run`` can be found there.
     run_id: str | None = None
+    #: The species' approved checks, most important first; empty when it has none.
+    checks: tuple[ProbeCheck, ...] = ()
 
     def as_prompt_variables(self) -> dict[str, str]:
         """The values the Langfuse template is compiled with.
 
         Keys are exactly :data:`~mlops.assessment.prompts.PROBE_VARIABLES`.
+        Each optional section is the whole block or ``""``, so the template needs
+        no conditional.
         """
         knowledge = self.plant_knowledge.strip()
-        return {"plant_knowledge": f"Plant knowledge:\n{knowledge}" if knowledge else ""}
+        checks = ""
+        if self.checks:
+            lines = [
+                "Species-specific checks. Answer every one about Image 2 in"
+                ' "probe_findings", using the id before the colon as "slug":'
+            ]
+            for check in self.checks:
+                lines.extend(check.as_prompt_lines())
+            checks = "\n".join(lines)
+        return {
+            "plant_knowledge": f"Plant knowledge:\n{knowledge}" if knowledge else "",
+            "probe_checks": checks,
+        }
 
     def trace_metadata(self) -> dict[str, str]:
         """Searchable trace metadata: ``plant_id`` and, when known, ``run_id``."""
@@ -232,6 +274,7 @@ def run_probe(
 
     text = prompt.compile(**probe.as_prompt_variables())
     images = [probe.previous_image, probe.current_image]
+    slugs = _asked_slugs(prompt, probe)
 
     client = get_client(COMPONENT)
     # One trace per frame pair, with each run (and its repair) nested inside it
@@ -249,7 +292,9 @@ def run_probe(
         last_error: Exception | None = None
         for index in range(1, config.runs + 1):
             try:
-                valid.append(_run_once(client, backend, text, images, config, index=index))
+                valid.append(
+                    _run_once(client, backend, text, images, config, slugs, index=index)
+                )
             except (AggregateError, ValidationError) as error:
                 last_error = error
 
@@ -261,17 +306,38 @@ def run_probe(
             )
             raise AssessmentRunError(config.runs, len(valid), last_error)
 
-        verdict = aggregate_observations(valid)
+        verdict = aggregate_observations(valid, tuple(slugs))
         span.update(
             output={
                 "health_status": verdict.health_status,
                 "observations": verdict.observations,
                 "consensus": verdict.consensus,
+                "fired_probes": [r["slug"] for r in verdict.probe_results if r["fired"]],
             }
         )
         trace_id: str | None = span.trace_id
 
     return replace(verdict, trace_id=trace_id)
+
+
+def _asked_slugs(prompt: Any, probe: ProbeInput) -> frozenset[str]:
+    """The checks this run will actually ask, and so vote on.
+
+    A prompt version without ``{{probe_checks}}`` never shows the checks; voting
+    on them would record every one as ``cannot_tell``, so none are recorded.
+    """
+    if not probe.checks:
+        return frozenset()
+    variables = getattr(prompt, "variables", None)
+    if variables is not None and "probe_checks" not in variables:
+        logger.warning(
+            "prompt %s v%s has no {{probe_checks}}; %d approved check(s) not asked",
+            prompts.PROBE_PROMPT,
+            getattr(prompt, "version", "?"),
+            len(probe.checks),
+        )
+        return frozenset()
+    return frozenset(check.slug for check in probe.checks)
 
 
 def _run_once(
@@ -280,17 +346,18 @@ def _run_once(
     text: str,
     images: list[bytes],
     config: ProbeConfig,
+    slugs: frozenset[str],
     *,
     index: int,
 ) -> RunObservation:
     """One run: generate, validate, and on failure one repair with the errors fed back."""
     raw = _generate(client, backend, text, images, config, name=f"vlm-run-{index}")
     try:
-        return _parse(raw)
+        return _parse(raw, slugs)
     except (AggregateError, ValidationError) as error:
         repair = _repair_prompt(text, raw, error)
     raw = _generate(client, backend, repair, images, config, name=f"vlm-run-{index}-repair")
-    return _parse(raw)
+    return _parse(raw, slugs)
 
 
 def _generate(
@@ -326,8 +393,13 @@ def _generate(
     return raw
 
 
-def _parse(raw: str) -> RunObservation:
-    return RunObservation.model_validate(extract_json_object(raw))
+def _parse(raw: str, slugs: frozenset[str] = frozenset()) -> RunObservation:
+    run = RunObservation.model_validate(extract_json_object(raw))
+    try:
+        run.check_probe_slugs(slugs)
+    except ValueError as error:
+        raise AggregateError(str(error)) from error
+    return run
 
 
 def _repair_prompt(text: str, raw: str, error: Exception) -> str:

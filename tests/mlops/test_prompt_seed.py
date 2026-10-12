@@ -57,7 +57,7 @@ def test_assessment_first_version_goes_live(monkeypatch: pytest.MonkeyPatch) -> 
     assert kwargs["type"] == "text"
     assert kwargs["prompt"] == assessment_prompts.BOOTSTRAP_PROMPT
     assert kwargs["config"] == {"model": "internvl", "runs": 5, "temperature": 0.7,
-                                "max_new_tokens": 1024}
+                                "max_new_tokens": 1536}
 
 
 def test_assessment_a_changed_prompt_is_created_unlabelled(
@@ -110,9 +110,12 @@ def test_assessment_needs_a_model() -> None:
 
 
 def test_assessment_bootstrap_prompt_uses_exactly_the_declared_variables() -> None:
-    compiled = assessment_prompts.BOOTSTRAP_PROMPT.replace("{{plant_knowledge}}", "")
+    compiled = assessment_prompts.BOOTSTRAP_PROMPT
+    for name in assessment_prompts.PROBE_VARIABLES:
+        assert "{{" + name + "}}" in compiled
+        compiled = compiled.replace("{{" + name + "}}", "")
     assert "{{" not in compiled
-    assert "{{plant_knowledge}}" in assessment_prompts.BOOTSTRAP_PROMPT
+    assert '"probe_findings"' in assessment_prompts.BOOTSTRAP_PROMPT
 
 
 # --------------------------------------------------------------------------- #

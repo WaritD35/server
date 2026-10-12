@@ -3,9 +3,10 @@
 import logging
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
-from assessment_fakes import CURRENT_CAPTURED_AT, FakeFrames, FakeProbe
+from assessment_fakes import CURRENT_CAPTURED_AT, FakeFrames, FakeProbe, default_verdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -161,3 +162,104 @@ def test_an_unknown_health_status_is_rejected_and_nothing_is_stored(
         assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
 
     assert _observations(session) == []
+
+
+# --------------------------------------------------------------------------- #
+# approved knowledge probes
+# --------------------------------------------------------------------------- #
+
+
+def test_approved_probes_are_asked_screening_first_then_by_priority(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_probes: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    probe_set_id = add_probes(
+        ("pest.leaf_spots", 3, False),
+        ("water_deficit.leaf_droop", 2, False),
+        ("light.leaf_bleach", 1, True),
+    )
+    frames.add_pair(plant_id)
+    probe.verdict = replace(
+        default_verdict(),
+        probe_results=[
+            {"slug": "light.leaf_bleach", "answer": "no", "fired": False},
+            {"slug": "water_deficit.leaf_droop", "answer": "yes", "fired": True},
+            {"slug": "pest.leaf_spots", "answer": "cannot_tell", "fired": False},
+        ],
+    )
+
+    stored = assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    (sent,) = probe.calls
+    assert [c.slug for c in sent.checks] == [
+        "light.leaf_bleach",
+        "water_deficit.leaf_droop",
+        "pest.leaf_spots",
+    ]
+    droop = sent.checks[1]
+    assert droop.question == "Is there water_deficit.leaf_droop?"
+    assert droop.worse_looks_like == "water_deficit.leaf_droop visible"
+    assert droop.not_this == "a look-alike"
+
+    assert stored.probe_set_id == probe_set_id
+    assert stored.probe_results_json[1] == {
+        "slug": "water_deficit.leaf_droop",
+        "answer": "yes",
+        "fired": True,
+        "care_need": "water_deficit",
+        "question": "Is there water_deficit.leaf_droop?",
+    }
+
+
+def test_at_most_eight_checks_are_asked(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_probes: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    add_probes(*((f"need{i}.check", i, False) for i in range(1, 11)))
+    frames.add_pair(plant_id)
+
+    assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    (sent,) = probe.calls
+    assert [c.slug for c in sent.checks] == [f"need{i}.check" for i in range(1, 9)]
+
+
+def test_without_an_approved_set_nothing_is_asked_or_stored(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_species: Callable[..., None],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    add_species()
+    frames.add_pair(plant_id)
+
+    stored = assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    assert probe.calls[0].checks == ()
+    assert stored.probe_set_id is None
+    assert stored.probe_results_json is None
+
+
+def test_checks_the_prompt_did_not_ask_are_not_stored(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_probes: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+) -> None:
+    """An older prompt version without the checks section returns no results."""
+    add_probes(("water_deficit.leaf_droop", 1, False))
+    frames.add_pair(plant_id)
+
+    stored = assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    assert len(probe.calls[0].checks) == 1
+    assert stored.probe_set_id is None
+    assert stored.probe_results_json is None
