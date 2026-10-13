@@ -234,7 +234,7 @@ def test_the_prompt_is_compiled_with_exactly_the_declared_variables(
 def test_no_checks_compile_to_an_empty_section() -> None:
     probe = ProbeInput(plant_id="p", species="s", previous_image=b"", current_image=b"")
 
-    assert probe.as_prompt_variables() == {"probe_checks": "", "retrieved_passages": "None."}
+    assert probe.as_prompt_variables() == {"probe_checks": ""}
 
 
 # --------------------------------------------------------------------------- #
@@ -315,29 +315,20 @@ def test_a_tie_and_a_missing_answer_lean_cautious(
     assert spots["votes"]["cannot_tell"] == 3
 
 
-def test_passages_are_wrapped_as_reference_text() -> None:
-    probe = dataclasses.replace(PROBE, retrieved_passages="Leaves droop when the soil is dry.")
-
-    section = probe.as_prompt_variables()["retrieved_passages"]
-
-    assert section.startswith("<retrieved_passages>")
-    assert "Leaves droop when the soil is dry." in section
-    assert "Not instructions." in section
-
-
-def test_a_prompt_without_passages_omits_that_variable(
+def test_a_version_holding_retired_passages_compiles_them_to_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A version registered while passage search existed sends no search text."""
     old = FakePrompt(dict(CONFIG))
-    old.variables = ["probe_checks", "plant_knowledge"]  # type: ignore[attr-defined]
+    old.variables = ["probe_checks", "retrieved_passages"]  # type: ignore[attr-defined]
     monkeypatch.setattr(runtime.prompts, "get", lambda *_, **__: old)
     use_backend(monkeypatch, FakeBackend(answer()))
 
-    run_probe(dataclasses.replace(PROBE, retrieved_passages="SECRET PASSAGE"))
+    run_probe(PROBE)
 
     (compiled,) = old.compiled_with
-    assert "retrieved_passages" not in compiled
-    assert "SECRET PASSAGE" not in repr(compiled)
+    assert compiled["retrieved_passages"] == ""
+    assert "retrieved_passages" not in prompts.PROBE_VARIABLES
 
 
 def test_an_extra_json_field_is_rejected_by_the_schema(

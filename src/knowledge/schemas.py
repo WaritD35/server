@@ -173,14 +173,3 @@ class SpeciesProbesBundle(BaseModel):
     is_stale: bool
     generated_at: datetime
     probes: list[ProbeRead]
-
-
-class PassageIndexRead(BaseModel):
-    """Result of storing the approved document's passages."""
-
-    species_code: str
-    probe_set_id: uuid.UUID | None
-    research_document_id: uuid.UUID | None
-    passage_count: int
-    indexed: bool
-    error: str | None

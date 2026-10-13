@@ -143,6 +143,7 @@ def _seed_care_case(
                 worse_looks_like="worse",
                 better_looks_like="better",
                 not_this="look-alike",
+                evidence_quote=f"Research says {slug} needs care.",
             )
             session.add(probe)
             session.flush()
@@ -233,53 +234,38 @@ def test_with_no_fired_check_every_approved_action_is_offered(
 
 
 def test_without_an_approved_set_nothing_is_offered_and_no_text_is_sent(
-    session: Session, captured: list[AdviceInput], monkeypatch: pytest.MonkeyPatch
+    session: Session, captured: list[AdviceInput]
 ) -> None:
-    searched = False
-
-    def _search(*_args: object, **_kwargs: object) -> str:
-        nonlocal searched
-        searched = True
-        return "SECRET RESEARCH TEXT"
-
-    monkeypatch.setattr(advice_service, "search_approved_passages", _search)
     plant_id, run_id = _seed_care_case(session, fired=[], approved_probes=None)
 
     plan = generate_for_plant(session, plant_id, run_id)
 
     (payload,) = captured
     assert payload.approved_actions == ()
-    assert searched is False
     assert "SECRET RESEARCH TEXT" not in repr(payload)
     assert plan is not None
     assert [a.action_type for a in plan.actions] == ["inspect"]
     assert plan.actions[0].approved_action_id is None
 
 
-def test_retrieved_passages_follow_symptoms_and_fired_checks(
-    session: Session, captured: list[AdviceInput], monkeypatch: pytest.MonkeyPatch
+def test_a_fired_check_carries_its_approved_basis_from_knowledge(
+    session: Session, captured: list[AdviceInput]
 ) -> None:
-    queries: list[str] = []
-
-    def _search(_session: Session, _species: str, query: str) -> str:
-        queries.append(query)
-        return "Roots rot in standing water."
-
-    monkeypatch.setattr(advice_service, "search_approved_passages", _search)
     plant_id, run_id = _seed_care_case(
         session,
-        fired=["water_excess.soggy_soil"],
-        approved_probes=["water_excess.soggy_soil"],
+        fired=["water_excess.soggy_soil", "gone.from_the_set"],
+        approved_probes=["water_deficit.leaf_droop", "water_excess.soggy_soil"],
     )
 
     generate_for_plant(session, plant_id, run_id)
 
     (payload,) = captured
-    assert queries
-    assert "water_excess.soggy_soil" in queries[0]
-    assert "Is there water_excess.soggy_soil?" in queries[0]
-    assert "Check fired." in queries[0]
-    assert payload.retrieved_passages == "Roots rot in standing water."
+    (check,) = payload.fired_checks
+    assert check.slug == "water_excess.soggy_soil"
+    assert check.evidence == "seen"
+    assert check.basis == "Research says water_excess.soggy_soil needs care."
+    assert check.not_this == "look-alike"
+    assert "water_deficit.leaf_droop" not in repr(payload.fired_checks)
     assert "SECRET RESEARCH TEXT" not in repr(payload)
 
 

@@ -17,7 +17,7 @@
 2. **Strict Context Isolation (No Cross-Schema Foreign Keys):** Bounded contexts never share database foreign keys. All cross-context references use immutable `UUID` values, and data dependencies are resolved via published Python interfaces (`<context>.interface`).
 3. **UUID identifiers & timezone timestamps:** Table primary keys are native PostgreSQL `UUID` values (`uuid.uuid4()`), except `knowledge.species`, whose primary key is `species_code` (`TEXT`). Every timestamp is a timezone-aware `TIMESTAMPTZ` (`DateTime(timezone=True)`) normalized to UTC.
 4. **Deterministic Gatekeeper Pattern:** The VLM probe (`mlops.assessment.run_probe`) runs first and writes an observation. The Event Engine and milestone detection that follow are 0-token Python, so a healthy/stable scan does not invoke the advice or companion LLMs.
-5. **Approved probes, plus passages from the approved document:** Care steps come from the approved probe set (`get_species_probes`). Approving that set chunks and embeds its research document into `knowledge.knowledge_chunks`. Assessment and advice hybrid-search those passages with `search_approved_passages`. The VLM may use them to recognise a listed check. Advice may use them for the written assessment only. `get_care_knowledge` is not used by the pipeline.
+5. **Approved, structured knowledge only:** Checks and care steps come from the approved probe set through `get_approved_checks`: assessment gets every approved check, advice only the checks that fired, each with its approved basis (`evidence_quote`) and its approved actions in order. Nothing is searched and no research text is sent. `get_care_knowledge` is not used by the pipeline.
 6. **Alembic Multi-Schema Migrations:** All database schemas, extensions (`vector`), tables, and indexes are managed through version-controlled Alembic migrations (`include_schemas=True`).
 
 ---
@@ -332,11 +332,11 @@ erDiagram
 | **`core`** | `auth` | User accounts, authentication, JWT tokens, hardware device provisioning | No |
 | **`registry`** | `registry` | Plant profiles (`POST /registry/plants`), species binding, device binding, note, gamification (`level`, `xp_ratio`). Delete archives the row | No |
 | **`capture`** | `vision` | Planter upload (`POST /capture/devices/me/frames`), quality, crop, alignment on claim; raw + processed frames in object storage. On-prem segmentation is deferred | No |
-| **`assessment`** | `assessment` | VLM probe via `mlops.assessment.run_probe` (N runs from the Langfuse prompt config + consensus), then 0-token Event Engine and milestone detection. Asks the approved probe set and passes `search_approved_passages` as reference text. Each VLM JSON answer is checked against the observation JSON Schema | VLM probe (mlops) + 0-token rules |
-| **`advice`** | `advice` | Care Advisor. Runs only for `CARE_ADVICE_REQUIRED`. Steps come from approved `knowledge.probe_action` rows. Assessment may use `search_approved_passages` | ✅ Ollama / OpenAI via `mlops/advice/` + Langfuse |
+| **`assessment`** | `assessment` | VLM probe via `mlops.assessment.run_probe` (N runs from the Langfuse prompt config + consensus), then 0-token Event Engine and milestone detection. Asks the approved checks from `get_approved_checks` (structured; no search). Each VLM JSON answer is checked against the observation JSON Schema | VLM probe (mlops) + 0-token rules |
+| **`advice`** | `advice` | Care Advisor. Runs only for `CARE_ADVICE_REQUIRED`. Fetches only the fired checks (basis + approved actions) with `get_approved_checks`; steps come from those `knowledge.probe_action` rows | ✅ Ollama / OpenAI via `mlops/advice/` + Langfuse |
 | **`companion`** | `companion` | 1st-person plant character persona projection, two-tier memory, fact validator. Table is `companion.messages` | ✅ Ollama / OpenAI via `mlops/companion/` + Langfuse |
 | **`action`** | `action` | Append-only care logs (`care_event`), button click deduplication, watering timestamps | No |
-| **`knowledge`** | `knowledge` | Species catalogue, research documents, probe sets, probe actions, exemplar photos, and **pgvector** chunks. Approval indexes the approved document. The pipeline reads the approved probe set and `search_approved_passages` | Chunk vectors from `EMBEDDING_MODEL` (`EMBEDDING_PROVIDER`, or `LLM_PROVIDER` when that is blank); LLM generates probe drafts |
+| **`knowledge`** | `knowledge` | Species catalogue, research documents, probe sets, probe actions, exemplar photos. The pipeline reads only the approved probe set, through `get_approved_checks` | LLM generates probe drafts |
 | **`orchestrator`**| `orchestrator`| Schedule tick (`enqueue_due`), `claim_next`, in-process stage machine. Statuses: `queued`, `running`, `succeeded`, `skipped`, `failed` | No |
 | **`mlops`** | *(shared)* | Unified LLM factory (Ollama + OpenAI), VLM backends (`VLM_PROVIDER=local\|vllm`), Langfuse prompt management, traces | AI runtime infrastructure |
 
@@ -379,9 +379,8 @@ sequenceDiagram
     alt no species / fewer than two frames
         Assess-->>Orch: StageSkipped (baseline or species unset)
     else
-        Assess->>Know: get_species_probes(species_code)
-        Assess->>Know: search_approved_passages(species, checks)
-        Assess->>MLOps_VLM: run_probe(checks, passages)
+        Assess->>Know: get_approved_checks(species_code)
+        Assess->>MLOps_VLM: run_probe(checks)
         MLOps_VLM-->>Assess: ProbeVerdict
         Assess->>DB: Store observation (including probe_results_json)
         Assess->>Assess: Event Engine evaluate() + milestone detect()
@@ -395,9 +394,8 @@ sequenceDiagram
     alt Decision == NO_ACTION or REQUEST_MORE_INFORMATION
         Adv-->>Orch: Return None (no advice LLM)
     else Decision == CARE_ADVICE_REQUIRED
-        Adv->>Know: get_species_probes(species_code)
-        Adv->>Know: search_approved_passages(symptoms, fired checks)
-        Adv->>MLOps_Adv: generate_advice(fired checks, approved actions, passages)
+        Adv->>Know: get_approved_checks(species_code, fired slugs)
+        Adv->>MLOps_Adv: generate_advice(fired checks + basis, approved actions)
         MLOps_Adv-->>Adv: CarePlan
         Adv->>DB: care_plan, care_plan_action, diagnosis
         Adv-->>Orch: Done

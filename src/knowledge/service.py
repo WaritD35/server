@@ -4,9 +4,7 @@ No HTTP concerns and no LLM logic here — this module only stores and reads wha
 is already in the ``knowledge`` schema.
 
 Nothing is ever overwritten or deleted: superseding a research document or
-approving another probe set archives the row it replaces. Passage rows in
-``knowledge_chunks`` are the exception: they are removed when the approved set
-changes, and replaced after commit when embedding succeeds.
+approving another probe set archives the row it replaces.
 """
 
 import uuid
@@ -16,7 +14,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from knowledge.db import probe_set_freshness, utcnow
-from knowledge.indexing import delete_species_chunks
 from knowledge.models import Probe, ProbeSet, ResearchDocument, Species
 from knowledge.schemas import DocumentCreate, SpeciesCreate
 
@@ -261,10 +258,6 @@ def approve_probe_set(
     # rejection stamped on the row would say two things at once.
     probe_set.rejected_by = None
     probe_set.rejected_at = None
-    # Drop the previous document's passages in this transaction. The embed that
-    # replaces them runs after commit, so a failed embed cannot leave the old
-    # document searchable.
-    delete_species_chunks(session, probe_set.species_code)
     session.commit()
     session.refresh(probe_set)
     return probe_set
@@ -303,7 +296,6 @@ def archive_probe_set(session: Session, probe_set: ProbeSet) -> ProbeSet:
         )
     probe_set.status = "archived"
     probe_set.archived_at = utcnow()
-    delete_species_chunks(session, probe_set.species_code)
     session.commit()
     session.refresh(probe_set)
     return probe_set

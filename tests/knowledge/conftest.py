@@ -85,17 +85,6 @@ def client(session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
         yield test_client
 
 
-@pytest.fixture(autouse=True)
-def _offline_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Approval calls the indexer. Tests must not reach an embeddings API."""
-    from mlops.embeddings import EmbeddingError
-
-    def _fail(_texts: list[str]) -> list[list[float]]:
-        raise EmbeddingError("embeddings are not configured")
-
-    monkeypatch.setattr("knowledge.indexing.embed_texts", _fail)
-
-
 @pytest.fixture
 def add_species(session_factory: sessionmaker[Session]) -> Callable[..., None]:
     """Insert one or more bare species rows."""

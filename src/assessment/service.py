@@ -16,7 +16,7 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_species, get_species_probes, search_approved_passages
+from knowledge.interface import get_approved_checks, get_species
 from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
@@ -430,11 +430,9 @@ def assess_frames(
     else:
         species_name = species.scientific_name
 
-    # Approved checks, plus passages from the approved research document.
-    # Unapproved document text is not sent.
+    # Only approved, structured knowledge reaches the VLM: the species' approved
+    # checks. Nothing is searched and no research text is sent.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
-    checks = tuple(check for check, _ in probes)
-    retrieved = _retrieved_passages(session, plant.species_code, species_name, checks, plant_id)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
@@ -442,8 +440,7 @@ def assess_frames(
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),
-            checks=checks,
-            retrieved_passages=retrieved,
+            checks=tuple(check for check, _ in probes),
         )
     )
     meta = {check.slug: extra for check, extra in probes}
@@ -474,44 +471,18 @@ def assess_frames(
     return observation
 
 
-def _retrieved_passages(
-    session: Session,
-    species_code: str,
-    species_name: str,
-    checks: tuple[ProbeCheck, ...],
-    plant_id: uuid.UUID,
-) -> str:
-    """Passages for the checks the VLM is about to answer, or ``""``."""
-    try:
-        return search_approved_passages(session, species_code, _passage_query(species_name, checks))
-    except Exception:
-        logger.warning(
-            "passage search failed for plant %s; assessment without passages",
-            plant_id,
-            exc_info=True,
-        )
-        return ""
-
-
-def _passage_query(species_name: str, checks: tuple[ProbeCheck, ...]) -> str:
-    """Species name plus each check's question, so retrieval matches what is asked."""
-    lines = [species_name]
-    for check in checks:
-        lines.append(f"{check.question} {check.worse_looks_like}")
-    return "\n".join(lines)
-
-
 def _approved_checks(
     session: Session, species_code: str
 ) -> tuple[uuid.UUID | None, list[tuple[ProbeCheck, dict[str, Any]]]]:
     """The species' approved probes as VLM checks, in the order to ask them.
 
-    Screening checks come first, then by ``priority`` (1 = first), capped at
-    :data:`MAX_PROBE_CHECKS`. Each check is paired with what the stored result
-    keeps beside the answer (``care_need``, ``question``), so the rules engine
-    and later stages need not ask ``knowledge`` again.
+    ``knowledge.get_approved_checks`` decides the order (screening first, then
+    ``priority``); this caps it at :data:`MAX_PROBE_CHECKS`. Each check is
+    paired with what the stored result keeps beside the answer (``care_need``,
+    ``question``), so the rules engine and later stages need not ask
+    ``knowledge`` again.
     """
-    bundle = get_species_probes(session, species_code)
+    bundle = get_approved_checks(session, species_code)
     if bundle is None or not bundle.probes:
         return None, []
     if bundle.is_stale:
@@ -520,7 +491,7 @@ def _approved_checks(
             bundle.probe_set_id,
             species_code,
         )
-    ordered = sorted(bundle.probes, key=lambda p: (not p.is_screening, p.priority))
+    ordered = bundle.probes
     if len(ordered) > MAX_PROBE_CHECKS:
         logger.info(
             "species %s has %d approved checks; asking the first %d",

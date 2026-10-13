@@ -9,21 +9,16 @@ Few-shot **exemplar images** for the probes are kept in MinIO.
 
 - **Owns (Postgres schema):** `knowledge`
 - **Owns (MinIO):** `exemplars`
-- **Feeds:** `assessment` (`get_species`, the approved probes as VLM checks,
-  and passages from `search_approved_passages`), `advice` (the approved
-  actions, and the same passages for the written assessment). Only knowledge
-  behind the **approved** probe set leaves this context. `get_care_knowledge`
-  is not used by the pipeline.
-- **Calls out:** external LLM for probe generation, and `mlops.embeddings` when an approved document is indexed (text only, never images)
+- **Feeds:** `assessment` (`get_species`, and the approved probes as VLM
+  checks), `advice` (the approved actions). Only **approved, structured**
+  knowledge leaves this context for the pipeline; research text does not.
+- **Calls out:** external LLM for probe generation (text only, never images)
 
-Documents and probe sets are not edited in place or deleted. Revising the
-research text inserts a new row and archives the one it replaces; approving
-another probe set archives the set it replaces. A species therefore has exactly
-one **active** document and at most one **approved** probe set, and every
-superseded version stays on record — an archived probe set can be approved
-again to swap it back in. `knowledge_chunks` are the exception: approving or
-archiving a set deletes that species' passages, and a successful index writes
-the approved document's passages again.
+Nothing here is edited in place or deleted. Revising the research text inserts a
+new row and archives the one it replaces; approving another probe set archives
+the set it replaces. A species therefore has exactly one **active** document and
+at most one **approved** probe set, and every superseded version stays on record
+— an archived probe set can be approved again to swap it back in.
 
 ## Data model
 
@@ -34,7 +29,6 @@ species
               └── probe      one single-question check (care_need, question, worse/better/not_this, …)
                     ├── probe_action     what to do when it fires (+ how long the effect takes)
                     └── probe_exemplar   few-shot image: object key in the `exemplars` bucket + label
-knowledge_chunks           passages of the approved document, replaced on approve or archive
 ```
 
 | Table | Holds |
@@ -45,7 +39,6 @@ knowledge_chunks           passages of the approved document, replaced on approv
 | `probe` | FK to the set, `slug` (unique per set), `care_need`, `priority`, `is_screening`, `question`, `worse_looks_like`, `better_looks_like`, `not_this`, `evidence_quote` |
 | `probe_action` | FK to the probe, `instruction`, `urgency`, `expect_typical_hours`, `expect_max_hours` (grace period), `expected_signal` |
 | `probe_exemplar` | FK to the probe, `role`, `storage_key` (in the `exemplars` bucket), `content_type`, `label` (JSONB), `origin`, `license`, `caption` |
-| `knowledge_chunks` | Passage of the document behind the approved set: `species_code`, `topic`, `content`, `metadata_json` (includes `embedding_model`), `embedding` (`Vector(1536)`), `research_document_id`, `probe_set_id`, `source_content_hash` |
 
 ### Singletons enforced in the database
 
@@ -136,11 +129,10 @@ All endpoints require an authenticated **superuser** (`core.users.CurrentSuperus
 | `POST /knowledge/probe-sets/generate?species_code=&limit=` | generate a `draft` set for every document in the backlog; `limit` is 1–50 and defaults to 10 |
 | `GET /knowledge/species/{species_code}/probe-sets` | every probe set for the species with `status`, `is_stale`, `probe_count` |
 | `GET /knowledge/probe-sets/{id}` | one set with its probes (each carrying `actions` and `exemplars`) and a `trace_url` to the generation run behind it |
-| `POST /knowledge/probe-sets/{id}/approve` | make this the species' approved set, archiving the incumbent (`approved_by` = caller's email); works from `draft` **and** from `archived` (swapping an older set back in); 409 if already approved or it has no probes. After commit, chunk and embed that set's research document. An embedding failure still returns the approved set and leaves the species with no passages |
+| `POST /knowledge/probe-sets/{id}/approve` | make this the species' approved set, archiving the incumbent (`approved_by` = caller's email); works from `draft` **and** from `archived` (swapping an older set back in); 409 if already approved or it has no probes |
 | `POST /knowledge/probe-sets/{id}/reject` | turn down a `draft` with a required `comment`; 409 for any other status |
-| `POST /knowledge/probe-sets/{id}/archive` | `approved` → `archived`, leaving the species with no approved set, and deletes that species' passages; 409 otherwise |
+| `POST /knowledge/probe-sets/{id}/archive` | `approved` → `archived`, leaving the species with no approved set; 409 otherwise |
 | `GET /knowledge/species/{species_code}/probes` | the approved bundle — same payload as the interface below |
-| `POST /knowledge/species/{species_code}/passages/reindex` | delete the species' passages, then chunk and embed the document behind the current approved set. 404 when there is no approved set. Embedding failure returns `200` with `indexed: false` |
 
 `POST /probe-sets/generate` is a **manual trigger for what becomes a scheduled
 job**, which is why it is capped: each document is an LLM call, and an unbounded
@@ -178,7 +170,7 @@ version nothing, and *why* it was wrong is the whole value of a human review.
 
 ```python
 from knowledge import get_species_probes   # (session, species_code) -> SpeciesProbesBundle | None
-from knowledge.interface import get_species, get_care_knowledge, search_approved_passages
+from knowledge.interface import get_species, get_care_knowledge
 
 bundle = get_species_probes(session, "spath")
 bundle.model_dump(mode="json")   # -> {species_code, probe_set_id, status, is_stale, generated_at, probes: [...]}
@@ -186,20 +178,14 @@ bundle.model_dump(mode="json")   # -> {species_code, probe_set_id, status, is_st
 
 - `get_species_probes(session, species_code)` — the species' **approved** probe
   set (with every probe's actions and exemplars), or `None`. `assessment` asks
-  its probes as VLM checks; `advice` builds care steps from its actions.
+  its probes as VLM checks; `advice` builds care plans from its actions.
 - `get_species(session, species_code)` — catalogue row (`SpeciesRead`) or
   `None`. `assessment.assess_frames` uses the scientific name (or the code if
   the species is unregistered).
-- `search_approved_passages(session, species_code, query_text)` — passages from
-  the research document stored when that species' probe set was approved, or
-  `""`. Hybrid search (keyword match and cosine similarity). `assessment` sends
-  the text to the VLM as reference for the checks. `advice` may use it for the
-  written assessment only.
 - `get_care_knowledge(session, species_code, query_vector=None, *, limit=4, max_chars=2500)`
   — free botanical text for the species (chunks, else the active research
-  document), or `None`. **Not used by the pipeline.** It can return an active
-  document that was never approved. Assessment and advice use
-  `search_approved_passages`.
+  document), or `None`. **Not used by the pipeline**: that text is not approved,
+  and assessment and advice use only the approved probe set.
 
 ## Internal design
 
@@ -209,11 +195,8 @@ src/knowledge/
 ├── generation.py       # document → draft probe set; the seam to mlops.knowledge.
 │                       #   No HTTP: an endpoint and a scheduler call the same function
 ├── review.py           # the human verdict → mlops.knowledge (best-effort)
-├── interface.py        # get_species_probes / get_species / search_approved_passages / get_care_knowledge
-├── chunking.py         # approved document → passages
-├── indexing.py         # embed and replace a species' chunks (imports mlops.embeddings)
-├── retrieval.py        # hybrid search over the approved set's passages
-├── service.py          # DB reads/writes; no HTTP, no LLM. Does not import mlops itself
+├── interface.py        # get_species_probes / get_species / get_care_knowledge
+├── service.py          # DB reads/writes; no HTTP, no LLM, no mlops import
 ├── schemas.py          # Pydantic request/response + interface payloads
 ├── db.py               # KNOWLEDGE_SCHEMA, Base (own MetaData), JsonB, utcnow(),
 │                       #   probe_set_freshness (view handle), create_views(), init_models()
@@ -223,14 +206,12 @@ src/knowledge/
     ├── document.py     # ResearchDocument
     ├── probe.py        # ProbeSet, Probe
     ├── action.py       # ProbeAction
-    ├── exemplar.py     # ProbeExemplar
-    └── chunk.py        # KnowledgeChunk
+    └── exemplar.py     # ProbeExemplar
 ```
 
-- `service.py` does not import `mlops`. `generation.py`, `review.py`, `api.py`,
-  `indexing.py`, and `retrieval.py` do. Persistence of probe sets stays testable
-  without a live embedding call, and the one-way dependency (`knowledge → mlops`,
-  never back) stays visible.
+- `service.py` never imports `mlops`; `generation.py` and `review.py` are the
+  only two modules that do. Persistence stays testable without the AI stack, and
+  the one-way dependency (`knowledge → mlops`, never back) stays visible.
 - `db.py` reuses `core.db`'s engine / pool but keeps its **own** declarative
   `Base`, so `knowledge` metadata stays isolated from the `auth` schema.
 - Surrogate `uuid` primary keys everywhere except `species` (whose
