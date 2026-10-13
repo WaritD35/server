@@ -143,6 +143,7 @@ def _seed_care_case(
                 worse_looks_like="worse",
                 better_looks_like="better",
                 not_this="look-alike",
+                evidence_quote=f"Research says {slug} needs care.",
             )
             session.add(probe)
             session.flush()
@@ -245,6 +246,27 @@ def test_without_an_approved_set_nothing_is_offered_and_no_text_is_sent(
     assert plan is not None
     assert [a.action_type for a in plan.actions] == ["inspect"]
     assert plan.actions[0].approved_action_id is None
+
+
+def test_a_fired_check_carries_its_approved_basis_from_knowledge(
+    session: Session, captured: list[AdviceInput]
+) -> None:
+    plant_id, run_id = _seed_care_case(
+        session,
+        fired=["water_excess.soggy_soil", "gone.from_the_set"],
+        approved_probes=["water_deficit.leaf_droop", "water_excess.soggy_soil"],
+    )
+
+    generate_for_plant(session, plant_id, run_id)
+
+    (payload,) = captured
+    (check,) = payload.fired_checks
+    assert check.slug == "water_excess.soggy_soil"
+    assert check.evidence == "seen"
+    assert check.basis == "Research says water_excess.soggy_soil needs care."
+    assert check.not_this == "look-alike"
+    assert "water_deficit.leaf_droop" not in repr(payload.fired_checks)
+    assert "SECRET RESEARCH TEXT" not in repr(payload)
 
 
 def test_each_step_records_the_approved_action_it_came_from(

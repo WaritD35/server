@@ -18,6 +18,7 @@ def get_llm(
     *,
     temperature: float = 0.2,
     model_override: str | None = None,
+    max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Return a configured BaseChatModel instance based on application settings.
 
@@ -34,11 +35,14 @@ def get_llm(
         selected_model = model_override or settings.ollama_model or "llama3.2:latest"
         base_url = settings.ollama_host or "http://localhost:11434"
         logger.debug("Initializing ChatOllama: base_url=%s, model=%s", base_url, selected_model)
-        return ChatOllama(
-            base_url=base_url,
-            model=selected_model,
-            temperature=temperature,
-        )
+        ollama_kwargs: dict[str, Any] = {
+            "base_url": base_url,
+            "model": selected_model,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            ollama_kwargs["num_predict"] = max_tokens
+        return ChatOllama(**ollama_kwargs)
 
     # Default: OpenAI
     from langchain_openai import ChatOpenAI
@@ -48,6 +52,8 @@ def get_llm(
         "model": selected_model,
         "temperature": temperature,
     }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
     if settings.llm_api_base:
         kwargs["base_url"] = settings.llm_api_base
     if settings.llm_api_key:

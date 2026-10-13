@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from jsonschema import Draft202012Validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 StressLevel = Literal["none", "mild", "moderate", "severe", "cannot_tell"]
 
@@ -28,6 +29,8 @@ ObservationType = Literal[
     "other",
 ]
 
+_STRICT = ConfigDict(extra="forbid")
+
 
 def _normalized(value: Any) -> Any:
     # "Mild " is the model being sloppy, not wrong; reject only real mismatches.
@@ -36,6 +39,8 @@ def _normalized(value: Any) -> Any:
 
 class ImageObservation(BaseModel):
     """What the model saw in one of the two frames."""
+
+    model_config = _STRICT
 
     image_description: str
     leaf_posture: str
@@ -52,6 +57,8 @@ class ImageObservation(BaseModel):
 class CurrentObservation(BaseModel):
     """One visible concern in the current frame (Image 2)."""
 
+    model_config = _STRICT
+
     type: ObservationType
     severity: Severity
     description: str = Field(min_length=1)
@@ -67,6 +74,8 @@ ProbeAnswer = Literal["yes", "no", "cannot_tell"]
 
 class ProbeFinding(BaseModel):
     """The answer to one species-specific check (an approved ``knowledge`` probe)."""
+
+    model_config = _STRICT
 
     #: The check's slug exactly as the prompt listed it.
     slug: str = Field(min_length=1)
@@ -87,6 +96,8 @@ class ProbeFinding(BaseModel):
 
 class RunObservation(BaseModel):
     """One run's full answer about the previous/current frame pair."""
+
+    model_config = _STRICT
 
     image_1_observation: ImageObservation
     image_2_observation: ImageObservation
@@ -112,3 +123,58 @@ class RunObservation(BaseModel):
             if finding.slug in seen:
                 raise ValueError(f"probe_findings: slug {finding.slug!r} answered twice")
             seen.add(finding.slug)
+
+
+#: JSON Schema for one VLM run. Built from :class:`RunObservation` so the
+#: validator and the model cannot drift.
+OBSERVATION_JSON_SCHEMA: dict[str, Any] = RunObservation.model_json_schema()
+_OBSERVATION_VALIDATOR = Draft202012Validator(OBSERVATION_JSON_SCHEMA)
+
+
+def prepare_observation_json(data: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``data`` with the label casing the schema enums accept.
+
+    The model often returns ``"Mild"`` or ``"Cannot_Tell"``. The schema enums
+    are lowercase, matching the values stored after validation.
+    """
+    prepared = dict(data)
+    for key in ("image_1_observation", "image_2_observation"):
+        block = prepared.get(key)
+        if isinstance(block, dict):
+            prepared[key] = _lower_fields(block, "visible_stress_level")
+    observations = prepared.get("current_observations")
+    if isinstance(observations, list):
+        prepared["current_observations"] = [
+            _lower_fields(item, "type", "severity") if isinstance(item, dict) else item
+            for item in observations
+        ]
+    findings = prepared.get("probe_findings")
+    if isinstance(findings, list):
+        prepared["probe_findings"] = [
+            _prepare_finding(item) if isinstance(item, dict) else item for item in findings
+        ]
+    return prepared
+
+
+def validate_observation_json(data: dict[str, Any]) -> None:
+    """Raise ``jsonschema.ValidationError`` when ``data`` does not match the schema."""
+    errors = sorted(_OBSERVATION_VALIDATOR.iter_errors(data), key=lambda error: error.json_path)
+    if errors:
+        raise errors[0]
+
+
+def _lower_fields(item: dict[str, Any], *names: str) -> dict[str, Any]:
+    copied = dict(item)
+    for name in names:
+        value = copied.get(name)
+        if isinstance(value, str):
+            copied[name] = value.strip().lower()
+    return copied
+
+
+def _prepare_finding(item: dict[str, Any]) -> dict[str, Any]:
+    copied = _lower_fields(item, "answer")
+    slug = copied.get("slug")
+    if isinstance(slug, str):
+        copied["slug"] = slug.strip()
+    return copied

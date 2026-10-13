@@ -319,6 +319,37 @@ def test_a_tie_and_a_missing_answer_lean_cautious(
     assert spots["votes"]["cannot_tell"] == 3
 
 
+def test_a_version_holding_retired_passages_compiles_them_to_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A version registered while passage search existed sends no search text."""
+    old = FakePrompt(dict(CONFIG))
+    old.variables = ["probe_checks", "retrieved_passages"]  # type: ignore[attr-defined]
+    monkeypatch.setattr(runtime.prompts, "get", lambda *_, **__: old)
+    use_backend(monkeypatch, FakeBackend(answer()))
+
+    run_probe(PROBE)
+
+    (compiled,) = old.compiled_with
+    assert compiled["retrieved_passages"] == ""
+    assert "retrieved_passages" not in prompts.PROBE_VARIABLES
+
+
+def test_an_extra_json_field_is_rejected_by_the_schema(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = json.loads(answer().removeprefix("```json\n").removesuffix("\n```"))
+    payload["note"] = "invented"
+    backend = use_backend(
+        monkeypatch,
+        FakeBackend(f"```json\n{json.dumps(payload)}\n```", answer(), answer(), answer()),
+    )
+
+    run_probe(PROBE)
+
+    assert "note" in backend.calls[1]["prompt"]
+
+
 def test_an_unknown_slug_is_sent_back_for_a_repair(
     prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -184,6 +184,29 @@ def test_the_prompt_lists_the_fired_checks_and_the_approved_actions(
     assert "{{" not in user
 
 
+def test_a_fired_check_brings_its_approved_basis_into_the_prompt(
+    model: FakeModel, offline: None
+) -> None:
+    (check,) = PAYLOAD.fired_checks
+    payload = dataclasses.replace(
+        PAYLOAD,
+        fired_checks=(
+            dataclasses.replace(
+                check,
+                basis="Soggy soil starves roots of oxygen.",
+                not_this="soil just watered",
+            ),
+        ),
+    )
+
+    generate_advice(payload)
+
+    user = model.sent[0][1][1]
+    assert "  Seen in the photo: dark wet soil" in user
+    assert "  Approved basis: Soggy soil starves roots of oxygen." in user
+    assert "  Not to be confused with: soil just watered" in user
+
+
 def test_an_action_that_was_not_listed_is_sent_back_once(offline: None, monkeypatch) -> None:
     invented = {**PLAN, "actions": [{"approved_action_id": "A9", "priority": 1, "label": "Repot"}]}
     fake = FakeModel(invented, PLAN)
@@ -290,6 +313,22 @@ def test_falls_back_to_the_bootstrap_prompt_when_the_fetch_fails(
     assert result.source == "llm"
     assert result.prompt_version is None
     assert model.kwargs == {"temperature": 0.2, "model_override": None}
+
+
+def test_a_version_without_room_for_the_knowledge_uses_the_bootstrap_prompt(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    old = FakePrompt({"model": "gpt-x"}, version=2)
+    old.prompt = [{"role": "user", "content": "{{plant_id}} {{symptoms}}"}]  # type: ignore[attr-defined]
+    _langfuse_configured(monkeypatch, lambda *_, **__: old)
+
+    with caplog.at_level("WARNING", logger=runtime.__name__):
+        result = generate_advice(PAYLOAD)
+
+    assert result.source == "llm"
+    assert result.prompt_version is None
+    assert "- A1: " in model.sent[0][1][1]
+    assert any("{{approved_actions}}" in r.getMessage() for r in caplog.records)
 
 
 def test_a_pinned_version_never_falls_back(

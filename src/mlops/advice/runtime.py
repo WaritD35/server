@@ -12,11 +12,11 @@ calling context flattens its own models onto :class:`AdviceInput`.
 ## Only approved knowledge
 
 The only care knowledge the model sees is **human-approved and structured**:
-the species checks assessment found firing (:class:`FiredCheck`) and the approved
-actions behind them (:class:`ApprovedAction`, a ``knowledge`` probe action).
-Free research text is never sent.
-
-The model does not write instructions. It picks approved actions by their
+the species checks assessment found firing (:class:`FiredCheck`, with each
+check's approved basis — the research quote the reviewer approved — and what it
+is not) and the approved actions behind them (:class:`ApprovedAction`). Nothing
+is searched and no free research text is sent. The basis informs the written
+assessment only. The model does not write instructions. It picks approved actions by their
 listed id, orders them, and gives each a short button label and a type; the
 instruction, urgency and expected time to effect are copied from the approved
 action. An answer that names an id that was not listed goes back for one
@@ -85,7 +85,22 @@ class FiredCheck:
     slug: str
     care_need: str
     question: str
+    #: What the VLM saw in the photo (not knowledge).
     evidence: str = ""
+    #: The check's approved basis: the research quote it was approved on.
+    basis: str = ""
+    #: The approved look-alike this check is not.
+    not_this: str = ""
+
+    def as_prompt_lines(self) -> list[str]:
+        lines = [f"- {self.slug} ({self.care_need}): {self.question}"]
+        if self.evidence:
+            lines.append(f"  Seen in the photo: {self.evidence}")
+        if self.basis:
+            lines.append(f"  Approved basis: {self.basis}")
+        if self.not_this:
+            lines.append(f"  Not to be confused with: {self.not_this}")
+        return lines
 
 
 @dataclass(frozen=True)
@@ -142,11 +157,7 @@ class AdviceInput:
         Keys are exactly :data:`~mlops.advice.prompts.DIAGNOSE_VARIABLES`.
         """
         checks = (
-            "\n".join(
-                f"- {c.slug} ({c.care_need}): {c.question}"
-                + (f" Seen: {c.evidence}" if c.evidence else "")
-                for c in self.fired_checks
-            )
+            "\n".join(line for c in self.fired_checks for line in c.as_prompt_lines())
             or "None of the approved checks fired."
         )
         actions = "\n".join(
@@ -355,6 +366,36 @@ def _no_knowledge_plan(payload: AdviceInput) -> tuple[str, str, list[dict[str, A
     )
 
 
+def _variables_for_prompt(
+    prompt: ChatPromptClient | None, variables: dict[str, str]
+) -> dict[str, str]:
+    """Drop variables the fetched prompt does not declare.
+
+    An older prompt version must still compile. When the prompt shape is
+    unknown, pass every variable.
+    """
+    if prompt is None:
+        return variables
+    declared = _declared_variables(prompt)
+    if not declared:
+        return variables
+    return {key: value for key, value in variables.items() if key in declared}
+
+
+def _declared_variables(prompt: ChatPromptClient) -> set[str]:
+    raw = getattr(prompt, "prompt", None)
+    texts: list[str] = []
+    if isinstance(raw, str):
+        texts.append(raw)
+    elif isinstance(raw, list):
+        for message in raw:
+            if isinstance(message, dict):
+                texts.append(str(message.get("content", "")))
+            else:
+                texts.append(str(getattr(message, "content", "")))
+    return set(prompts._VARIABLE.findall("\n".join(texts)))
+
+
 def _resolve_prompt(label: str | None, version: int | None) -> ChatPromptClient | None:
     """The Langfuse version to run, or ``None`` to use the bootstrap prompt.
 
@@ -366,7 +407,7 @@ def _resolve_prompt(label: str | None, version: int | None) -> ChatPromptClient 
         logger.debug("advice Langfuse project not configured; using the bootstrap prompt")
         return None
     try:
-        return prompts.get(prompts.DIAGNOSE_PROMPT, label=label)
+        prompt = prompts.get(prompts.DIAGNOSE_PROMPT, label=label)
     except Exception:
         logger.warning(
             "cannot fetch Langfuse prompt %r; using the bootstrap prompt",
@@ -374,6 +415,21 @@ def _resolve_prompt(label: str | None, version: int | None) -> ChatPromptClient 
             exc_info=True,
         )
         return None
+    declared = _declared_variables(prompt)
+    missing = [name for name in prompts.KNOWLEDGE_VARIABLES if name not in declared]
+    if declared and missing:
+        # A version with nowhere to put the approved knowledge would plan blind
+        # and fail id validation every time. Run the bootstrap prompt instead.
+        logger.warning(
+            "Langfuse prompt %r v%s has no %s; the approved knowledge would not reach "
+            "the model, so the bootstrap prompt is used. Register it with "
+            "`python -m mlops.advice.seed --promote`.",
+            prompts.DIAGNOSE_PROMPT,
+            getattr(prompt, "version", "?"),
+            ", ".join(f"{{{{{name}}}}}" for name in missing),
+        )
+        return None
+    return prompt
 
 
 def generate_advice(
@@ -403,7 +459,7 @@ def generate_advice(
         )
 
     prompt = _resolve_prompt(label, version)
-    variables = payload.as_prompt_variables()
+    variables = _variables_for_prompt(prompt, payload.as_prompt_variables())
     if prompt is not None:
         messages = prompt.compile(**variables)
         config = AdviceConfig.from_prompt_config(prompt.config, overrides=overrides)

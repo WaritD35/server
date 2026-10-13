@@ -16,7 +16,7 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_care_knowledge, get_species, get_species_probes
+from knowledge.interface import get_approved_checks, get_species
 from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
@@ -430,16 +430,13 @@ def assess_frames(
     else:
         species_name = species.scientific_name
 
-    plant_knowledge = get_care_knowledge(session, plant.species_code) or ""
-
-    # The probes_2-style prompt uses free plant knowledge again. Approved structured
-    # checks are still passed for newer prompt versions that include {{probe_checks}}.
+    # Only approved, structured knowledge reaches the VLM: the species' approved
+    # checks. Nothing is searched and no research text is sent.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
             species=species_name,
-            plant_knowledge=plant_knowledge,
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),
@@ -479,12 +476,13 @@ def _approved_checks(
 ) -> tuple[uuid.UUID | None, list[tuple[ProbeCheck, dict[str, Any]]]]:
     """The species' approved probes as VLM checks, in the order to ask them.
 
-    Screening checks come first, then by ``priority`` (1 = first), capped at
-    :data:`MAX_PROBE_CHECKS`. Each check is paired with what the stored result
-    keeps beside the answer (``care_need``, ``question``), so the rules engine
-    and later stages need not ask ``knowledge`` again.
+    ``knowledge.get_approved_checks`` decides the order (screening first, then
+    ``priority``); this caps it at :data:`MAX_PROBE_CHECKS`. Each check is
+    paired with what the stored result keeps beside the answer (``care_need``,
+    ``question``), so the rules engine and later stages need not ask
+    ``knowledge`` again.
     """
-    bundle = get_species_probes(session, species_code)
+    bundle = get_approved_checks(session, species_code)
     if bundle is None or not bundle.probes:
         return None, []
     if bundle.is_stale:
@@ -493,7 +491,7 @@ def _approved_checks(
             bundle.probe_set_id,
             species_code,
         )
-    ordered = sorted(bundle.probes, key=lambda p: (not p.is_screening, p.priority))
+    ordered = bundle.probes
     if len(ordered) > MAX_PROBE_CHECKS:
         logger.info(
             "species %s has %d approved checks; asking the first %d",
@@ -514,4 +512,3 @@ def _approved_checks(
         )
         for p in ordered[:MAX_PROBE_CHECKS]
     ]
-

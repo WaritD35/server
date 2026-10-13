@@ -41,7 +41,7 @@ companion  ─┘
 entry points take plain values and dataclasses defined here, and the calling
 context maps its own models onto them (e.g. `assessment` builds an
 `mlops.assessment.ProbeInput` with `plant_id`, `species`, `previous_image`,
-`current_image` and the approved `checks`). Without this rule
+`current_image`, and the approved `checks`). Without this rule
 `knowledge → mlops → knowledge` closes a cycle.
 
 ## One package per component, one owner each
@@ -178,17 +178,21 @@ UI, and running the script again creates another version rather than updating v1
 
 A **text** prompt named **`assessment/plant_observation_pair`** with the
 `production` label, compiled with exactly
-`PROBE_VARIABLES = ("probe_checks",)`: the species' **approved `knowledge`
-probes** (one block per check: slug, question, what "yes" and "no" look like,
-and what it is not), or `""`. That is the only knowledge the VLM sees — approved
-and structured, never free research text. Older versions still holding the
-retired `{{plant_knowledge}}` have it compiled to `""`
-(`prompts.RETIRED_VARIABLES`). The runtime sends the compiled text as the text
-part of a single user message next to the two images.
+`PROBE_VARIABLES = ("probe_checks",)`. `probe_checks` is
+the species' **approved `knowledge` probes** (one block per check: slug,
+question, what "yes" and "no" look like, and what it is not), or `""`.
+No free research text is sent. Older versions still holding the retired
+`{{plant_knowledge}}` or `{{retrieved_passages}}` have them compiled to `""`
+(`prompts.RETIRED_VARIABLES`). The runtime
+sends the compiled text as the text part of a single user message next to the
+two images.
 
 The answer carries one `probe_findings` entry per listed check (`slug`,
-`answer` = `yes | no | cannot_tell`, `evidence`). An unknown or duplicated slug
-sends the run back for its repair; a missing one counts as `cannot_tell`. Each
+`answer` = `yes | no | cannot_tell`, `evidence`). The extracted JSON object is
+checked against the Draft 2020-12 schema of `RunObservation`
+(`mlops.assessment.schemas.OBSERVATION_JSON_SCHEMA`) and then validated as that
+model. A schema or model failure, or an unknown or duplicated slug, sends the
+run back for its one repair; a missing finding counts as `cannot_tell`. Each
 check is voted on over all valid runs like the health status (ties lean to
 `yes`) and comes back in `ProbeVerdict.probe_results`. A version without
 `{{probe_checks}}` still runs, but its checks are not asked or recorded (a
@@ -214,10 +218,15 @@ compiled with exactly `prompts.DIAGNOSE_VARIABLES`:
 `fired_checks`, `approved_actions`
 
 (`symptoms` and `observation_history` arrive as JSON strings.) **Only approved,
-structured knowledge** is sent: the approved checks that fired on the run and the
-approved `knowledge` probe actions the plan may use, listed as `A1`, `A2`, …
-(those of the fired checks; every approved action of the species when none
-fired). The model does not write instructions: `GeneratedCarePlan` names an
+structured knowledge** is sent, fetched by `advice` with
+`knowledge.get_approved_checks(species, fired slugs)`: each fired check with
+what was seen, its approved basis (`evidence_quote`) and what it is not
+(`fired_checks`), and the approved `knowledge` probe actions the plan may use,
+listed as `A1`, `A2`, … (those of the fired checks; every approved action of the
+species when none fired). A production version that declares variables but not
+`{{fired_checks}}` and `{{approved_actions}}` is not run: the bootstrap prompt is
+used with a warning, until a new version is seeded and promoted. The model does not write instructions:
+`GeneratedCarePlan` names an
 approved action per step (`approved_action_id`), its priority, a button label and
 a type. An id that was not listed sends the answer back for one repair; the
 instruction, urgency and expected time to effect are copied from the approved
@@ -252,10 +261,12 @@ compiled with exactly `prompts.SPEAK_VARIABLES`:
 `memory` is the whole optional history section (7-day observations and
 milestones) or `""`; `actions` is one `- ` line per care action.
 
-Its `config` carries `temperature`, optionally `model` (as for `advice`), and the
-plant's voice: `tones` maps a `health_status` to the text compiled into `{{tone}}`,
-and `default_tone` covers any other status. A version without them uses the
-bootstrap tones.
+Its `config` carries `temperature`, optionally `model` (as for `advice`),
+`max_tokens` (default 120, so the spoken reply stays short), and the plant's
+voice: `tones` maps a `health_status` to the text compiled into `{{tone}}`, and
+`default_tone` covers any other status. A version without tones uses the
+bootstrap tones. A reply longer than 4 sentences or 480 characters is cut at a
+sentence boundary before it is returned.
 
 Like advice, the companion degrades: the bootstrap prompt stands in when the
 `production` prompt cannot be fetched, and on an LLM failure it returns `None`,

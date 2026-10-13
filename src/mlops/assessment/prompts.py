@@ -32,14 +32,17 @@ PROBE_PROMPT: Final[str] = "assessment/plant_observation_pair"
 
 PROBE_PROMPT_TYPE: Final[str] = "text"
 
-#: The variables the ``PROBE_PROMPT`` template is compiled with — the contract
-#: between the prompt author and :mod:`mlops.assessment.runtime`.
-#: ``plant_knowledge`` is the free species knowledge block used by the older two-image probe. ``probe_checks`` remains available for newer prompt versions, but the probes_2-style bootstrap prompt does not ask them.
-PROBE_VARIABLES: Final[tuple[str, ...]] = ("plant_knowledge", "probe_checks")
+#: ``plant_knowledge`` is the free species knowledge block used by the
+#: older two-image probe. ``probe_checks`` remains available for newer
+#: prompt versions.
+PROBE_VARIABLES: Final[tuple[str, ...]] = (
+    "plant_knowledge",
+    "probe_checks",
+)
 
-#: Variables older prompt versions still contain, compiled to ``""`` so their
-#: placeholder never reaches the VLM.
-RETIRED_VARIABLES: Final[dict[str, str]] = {}
+RETIRED_VARIABLES: Final[dict[str, str]] = {
+    "retrieved_passages": "",
+}
 
 #: How long a fetched prompt is reused before Langfuse is asked again. This is
 #: the request path, so a promoted label takes effect within a minute.

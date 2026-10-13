@@ -34,9 +34,10 @@ DIAGNOSE_PROMPT: Final[str] = "advice/diagnose"
 
 #: The variables the ``DIAGNOSE_PROMPT`` template is compiled with — the
 #: contract between the prompt author and :mod:`mlops.advice.runtime`.
-#: ``fired_checks`` lists the approved checks that fired; ``approved_actions``
-#: lists the approved actions the plan may use, one per line as ``A1: …``.
-#: There is no free-text knowledge variable: only approved knowledge is sent.
+#: ``fired_checks`` lists the approved checks that fired, each with its approved
+#: basis and look-alike; ``approved_actions`` lists the approved actions the
+#: plan may use, one per line as ``A1: …``. Both are structured approved
+#: knowledge; there is no free-text knowledge variable and nothing is searched.
 DIAGNOSE_VARIABLES: Final[tuple[str, ...]] = (
     "plant_id",
     "health_status",
@@ -46,6 +47,11 @@ DIAGNOSE_VARIABLES: Final[tuple[str, ...]] = (
     "fired_checks",
     "approved_actions",
 )
+
+#: Where the approved knowledge goes. A Langfuse version missing either cannot
+#: show the model what it must choose from, so the runtime uses the bootstrap
+#: prompt instead of it.
+KNOWLEDGE_VARIABLES: Final[tuple[str, ...]] = ("fired_checks", "approved_actions")
 
 #: How long a fetched prompt is reused before Langfuse is asked again. Advice
 #: runs in the pipeline, so a promoted label takes effect within a minute.
@@ -65,8 +71,9 @@ from human-approved care actions only.
 PROCESS GUIDELINES:
 1. Examine the symptoms, history, and the approved checks that fired.
 2. Formulate a short headline status_label (e.g. "Overwatering stress", "Dry tip warning").
-3. Formulate an assessment explaining the likely cause, based only on what was observed
-   and on the checks that fired.
+3. Formulate an assessment explaining the likely cause, based only on what was observed,
+   on the checks that fired, and on each check's approved basis. Do not add causes
+   the basis does not support.
 4. Choose the care actions from the approved actions list. Never write a new action.
    - approved_action_id: the id from the list (e.g. "A1"); each id at most once.
    - priority: 1 = do first. Prefer actions of the checks that fired and higher urgency.

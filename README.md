@@ -38,10 +38,10 @@ planter ──POST /capture/devices/me/frames──▶ capture (vision: quality 
                                                     │  claimed by the next run
         orchestrator ──────────────────────────────▶│
         registry ──plant identity / device──────────▶│
-        knowledge ──approved probes──────────────────▶ assessment (VLM probe, then 0-token rules)
+        knowledge ──approved structured checks──────▶ assessment (VLM probe, JSON schema, then 0-token rules)
         capture  ──aligned frame pair───────────────────────▶│
                                                               │
-                                internal state & verdicts ────▶ advice (LLM)
+                                internal state, verdicts, fired checks + approved actions ▶ advice (LLM)
                                           diagnosis & actions ─▶ companion
                                              mood + utterances ─▶ orchestrator ──▶ edge display
 
@@ -54,9 +54,9 @@ planter ──POST /capture/devices/me/frames──▶ capture (vision: quality 
 |---|---------|---------|------|------------------------|--------------|
 | 1 | Plant Registry | `src/registry` | Identity & physical anchoring — plants, owners, species assignment, camera placement | `registry` | — |
 | 2 | Capture & Vision | `src/capture` | Visual data extraction — photos uploaded by planter devices (`POST /capture/devices/me/frames`), quality-check, preprocess, align frames | `vision` | `captures`, `frames-derived` |
-| 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species), versioned probe bundles | `knowledge` | `exemplars` |
-| 4 | Assessment | `src/assessment` | Internal-state inference — run probes on the VLM, aggregate N runs into verdict + severity + evidence + agreement | `assessment` | — |
-| 5 | Care Advice | `src/advice` | Interpretable reasoning — turn verdicts + history into a diagnosis, ranked actions, rationale and citations (external LLM, retrieval-grounded) | `advice` | — |
+| 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species: checks, their basis and approved actions) | `knowledge` | `exemplars` |
+| 4 | Assessment | `src/assessment` | Internal-state inference — run the approved checks on the VLM, validate each JSON answer, aggregate N runs into verdict + severity + evidence + agreement | `assessment` | — |
+| 5 | Care Advice | `src/advice` | Interpretable reasoning — turn verdicts + history into a diagnosis, ranked actions, rationale (external LLM, chooses only from the approved actions of the checks that fired) | `advice` | — |
 | 6 | Companion | `src/companion` | Ambient UI & persona — map internal state to moods / expressions / utterances, run the interaction loop, process care acknowledgements | `companion` | — |
 | 7 | MLOps | `src/mlops` | **Not a bounded context — a shared library.** Every VLM / LLM call in the system, plus the prompt management, tracing and offline experiments behind them (Langfuse). One subpackage per LLM-using component | — (none: Langfuse holds it) | `eval-sets`, `exemplars` (read) |
 | 8 | System Integration & Infrastructure | `src/orchestrator` + `src/core` | End-to-end orchestration & operations — event routing, batch workflow, device sync (`orchestrator`); cross-cutting infrastructure (`core`) | `orchestrator` (event outbox / job runs / device sync), `auth` (`core`) | — |
@@ -227,10 +227,10 @@ context applies in its `api.py`. Tokens are scoped so a `device` or `owner` toke
 cannot reach another household's data.
 
 **Hard boundary:** no plant imagery is ever transmitted to a third-party service.
-Segmentation and the VLM run on infrastructure this project controls. Only the
-`advice` context and the offline probe generation in `knowledge` call an
-external LLM, and they send text (verdicts, severities, evidence, history) — never
-images.
+Segmentation and the VLM run on infrastructure this project controls. The
+`advice` and `companion` contexts, and offline probe generation in `knowledge`
+call a text model. They send text (verdicts, severities, evidence, history,
+or approved structured knowledge) — never images.
 
 ---
 
@@ -244,7 +244,7 @@ contexts reach it over the network using values from `.env`.
 |---------|---------|-----------|---------|
 | VLM (probe execution) | On-prem **vLLM**, or in-process transformers | `VLM_PROVIDER=vllm` → OpenAI-compatible HTTP (`VLM_API_BASE`); `VLM_PROVIDER=local` → weights at `VLM_LOCAL_MODEL_PATH` (`uv sync --group vlm-local`) | `mlops` (for assessment) |
 | Segmentation model | On-prem | HTTP API (`SEGMENTATION_ENDPOINT`) | capture |
-| LLM (advice, companion, probe generation) | External API, text only | HTTP API (`LLM_API_BASE`) | `mlops` (for advice, companion, knowledge) |
+| LLM (advice, companion, probe generation) | External API or local Ollama, text only | `LLM_PROVIDER=openai` uses `LLM_API_BASE`; `LLM_PROVIDER=ollama` uses `OLLAMA_HOST` | `mlops` (for advice, companion, knowledge) |
 | Langfuse (prompts, traces, datasets, scores) | Langfuse Cloud or self-hosted (`LANGFUSE_HOST`) | Langfuse SDK | `mlops` — one project **per component**, so one key pair each |
 
 ---
@@ -291,6 +291,7 @@ Relevant environment variables (full list in `.env.example`):
 | `VLM_PROVIDER` | `vllm` (default) or `local` |
 | `VLM_API_BASE` / `VLM_API_KEY` | OpenAI-compatible vLLM endpoint |
 | `VLM_LOCAL_MODEL_PATH` | Weights for `local` (default `models/internvl3_5-2b`) |
+| `LLM_PROVIDER` | `openai` (default) or `ollama` for chat models |
 
 ---
 

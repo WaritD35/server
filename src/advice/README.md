@@ -28,9 +28,7 @@ specific, ordered care actions with their reasoning.
 ## Inputs
 
 - **Internal state & verdicts** from `assessment`.
-- **Approved** checks and actions only, from `knowledge.get_species_probes`
-  (research text is never read), and the fired checks from the run's
-  `assessment` observation.
+- The fired checks from the run's observation, and **only those checks** from `knowledge.get_approved_checks(species, slugs)`: each with its question, approved basis (`evidence_quote`), what it is not, and its approved actions in order (every approved check when none fired). Care steps come only from those actions; no search and no free research text.
 - External LLM — **text only, never images**.
 
 ## Outputs

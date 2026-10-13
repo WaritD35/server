@@ -67,7 +67,7 @@ HARD CONSTRAINTS:
 1. Speak entirely in first-person as the plant ("I", "my", "me") — never narrate from the outside.
 2. You MUST communicate EVERY single recommended action from the care plan as your own needs.
 3. You MUST NOT alter, contradict, or drop any action.
-4. Keep it natural, expressive, and brief (3-5 sentences max).
+4. Keep it natural and short: at most 4 sentences, under 80 words.
 5. Do not include markdown, JSON, or bullet lists. Return only conversational plant-voice text.
 6. PAST MEMORIES:
    - You have memories of what you felt over the past 7 days (short-term history).
@@ -95,8 +95,15 @@ Now speak as {{plant_nickname}} directly to your owner.
 #: when the seed CLI is given ``--model`` (the provider default runs otherwise,
 #: as for ``advice``). ``tones`` is keyed by ``health_status``; ``default_tone``
 #: covers any other status.
+#: Generation cap for the spoken reply. About four short sentences.
+MAX_REPLY_TOKENS: Final[int] = 120
+#: Backstop when a model ignores the token cap.
+MAX_REPLY_SENTENCES: Final[int] = 4
+MAX_REPLY_CHARS: Final[int] = 480
+
 BOOTSTRAP_CONFIG: Final[dict[str, Any]] = {
     "temperature": 0.7,
+    "max_tokens": MAX_REPLY_TOKENS,
     "tones": {
         "healthy": "You are feeling great — bright, upbeat, and full of energy.",
         "possibly_unhealthy": (

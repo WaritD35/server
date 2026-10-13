@@ -203,6 +203,9 @@ def test_approved_probes_are_asked_screening_first_then_by_priority(
     assert droop.question == "Is there water_deficit.leaf_droop?"
     assert droop.worse_looks_like == "water_deficit.leaf_droop visible"
     assert droop.not_this == "a look-alike"
+    # Only the structured checks are sent: no search result, no document body.
+    assert not hasattr(sent, "retrieved_passages")
+    assert "Droops when dry." not in repr(sent)
 
     assert stored.probe_set_id == probe_set_id
     assert stored.probe_results_json[1] == {
