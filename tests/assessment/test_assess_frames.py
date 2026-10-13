@@ -10,6 +10,7 @@ from assessment_fakes import CURRENT_CAPTURED_AT, FakeFrames, FakeProbe, default
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from assessment import service
 from assessment.models import Observation
 from assessment.schemas import HealthStatus
 from assessment.service import AssessmentSkipped, assess_frames
@@ -166,6 +167,56 @@ def test_an_unknown_health_status_is_rejected_and_nothing_is_stored(
     assert _observations(session) == []
 
 
+def test_retrieved_passages_are_the_search_result_for_the_checks(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_probes: Callable[..., uuid.UUID],
+    frames: FakeFrames,
+    probe: FakeProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    add_probes(("water_deficit.leaf_droop", 1, False))
+    frames.add_pair(plant_id)
+    seen: dict[str, str] = {}
+
+    def _search(_session: Session, species_code: str, query_text: str) -> str:
+        seen["species"] = species_code
+        seen["query"] = query_text
+        return "APPROVED PASSAGE ABOUT DROOP"
+
+    monkeypatch.setattr(service, "search_approved_passages", _search)
+
+    assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    (sent,) = probe.calls
+    assert seen["species"] == "spath"
+    assert "Spathiphyllum wallisii" in seen["query"]
+    assert "Is there water_deficit.leaf_droop?" in seen["query"]
+    assert sent.retrieved_passages == "APPROVED PASSAGE ABOUT DROOP"
+    assert "Droops when dry." not in repr(sent)
+
+
+def test_a_failed_passage_search_still_runs_the_probe(
+    session: Session,
+    plant_id: uuid.UUID,
+    add_species: Callable[..., None],
+    frames: FakeFrames,
+    probe: FakeProbe,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    add_species()
+    frames.add_pair(plant_id)
+
+    def _boom(*_args: object, **_kwargs: object) -> str:
+        raise RuntimeError("embed down")
+
+    monkeypatch.setattr(service, "search_approved_passages", _boom)
+
+    assess_frames(session, plant_id, uuid.uuid4(), frames_run_id=None)
+
+    assert probe.calls[0].retrieved_passages == ""
+
+
 # --------------------------------------------------------------------------- #
 # approved knowledge probes
 # --------------------------------------------------------------------------- #
@@ -205,6 +256,9 @@ def test_approved_probes_are_asked_screening_first_then_by_priority(
     assert droop.question == "Is there water_deficit.leaf_droop?"
     assert droop.worse_looks_like == "water_deficit.leaf_droop visible"
     assert droop.not_this == "a look-alike"
+    # SQLite cannot run hybrid search, so the document body is not sent.
+    assert sent.retrieved_passages == ""
+    assert "Droops when dry." not in repr(sent)
 
     assert stored.probe_set_id == probe_set_id
     assert stored.probe_results_json[1] == {

@@ -17,7 +17,7 @@ from assessment.interface import (
     get_trigger_result,
 )
 from assessment.schemas import ObservationRead, TriggerDecision
-from knowledge.interface import get_species_probes
+from knowledge.interface import get_species_probes, search_approved_passages
 from mlops.advice.runtime import AdviceInput, ApprovedAction, FiredCheck, generate_advice
 from registry.interface import get_plant
 
@@ -75,6 +75,27 @@ def _approved_actions(
     ]
 
 
+def _passage_query(
+    current: ObservationRead | None,
+    trigger_reason: str | None,
+    fired: list[FiredCheck],
+) -> str:
+    """Symptoms, trigger, and fired checks: the hybrid-search query."""
+    symptoms = current.observations if current else []
+    lines = [
+        f"Symptoms: {symptoms}",
+        f"Trigger: {trigger_reason or 'Health change'}",
+    ]
+    if fired:
+        lines.append("Fired checks:")
+        for check in fired:
+            seen = f" Seen: {check.evidence}" if check.evidence else ""
+            lines.append(f"- {check.slug}: {check.question}{seen}")
+    else:
+        lines.append("None of the approved checks fired.")
+    return "\n".join(lines)
+
+
 def generate_for_plant(
     session: Session,
     plant_id: uuid.UUID,
@@ -96,6 +117,18 @@ def generate_for_plant(
 
     fired = _fired_checks(current)
     approved = _approved_actions(session, species_code, fired)
+    retrieved = ""
+    if approved and species_code is not None:
+        try:
+            retrieved = search_approved_passages(
+                session, species_code, _passage_query(current, trigger.reasoning, fired)
+            )
+        except Exception:
+            logger.warning(
+                "passage search failed for plant %s; assessment without passages",
+                plant_id,
+                exc_info=True,
+            )
 
     payload = AdviceInput(
         plant_id=str(plant_id),
@@ -113,6 +146,7 @@ def generate_for_plant(
         confidence_agreement=trigger.confidence,
         fired_checks=tuple(fired),
         approved_actions=tuple(approved),
+        retrieved_passages=retrieved,
         run_id=str(run_id),
     )
 

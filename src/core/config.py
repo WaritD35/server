@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:latest"
     llm_api_base: str = ""
     llm_api_key: str = ""
+    # Passage embeddings for the approved research document. Not the chat model.
+    # Blank follows LLM_PROVIDER. "ollama" uses OLLAMA_HOST; "openai" uses
+    # LLM_API_BASE and LLM_API_KEY. The chunk column is Vector(1536).
+    embedding_provider: str = ""
+    embedding_model: str = "text-embedding-3-small"
 
     # --- VLM (images; used by `mlops.assessment`) ---
     # "local" runs transformers in-process from `vlm_local_model_path`; "vllm"

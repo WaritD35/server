@@ -233,18 +233,54 @@ def test_with_no_fired_check_every_approved_action_is_offered(
 
 
 def test_without_an_approved_set_nothing_is_offered_and_no_text_is_sent(
-    session: Session, captured: list[AdviceInput]
+    session: Session, captured: list[AdviceInput], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    searched = False
+
+    def _search(*_args: object, **_kwargs: object) -> str:
+        nonlocal searched
+        searched = True
+        return "SECRET RESEARCH TEXT"
+
+    monkeypatch.setattr(advice_service, "search_approved_passages", _search)
     plant_id, run_id = _seed_care_case(session, fired=[], approved_probes=None)
 
     plan = generate_for_plant(session, plant_id, run_id)
 
     (payload,) = captured
     assert payload.approved_actions == ()
+    assert searched is False
     assert "SECRET RESEARCH TEXT" not in repr(payload)
     assert plan is not None
     assert [a.action_type for a in plan.actions] == ["inspect"]
     assert plan.actions[0].approved_action_id is None
+
+
+def test_retrieved_passages_follow_symptoms_and_fired_checks(
+    session: Session, captured: list[AdviceInput], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queries: list[str] = []
+
+    def _search(_session: Session, _species: str, query: str) -> str:
+        queries.append(query)
+        return "Roots rot in standing water."
+
+    monkeypatch.setattr(advice_service, "search_approved_passages", _search)
+    plant_id, run_id = _seed_care_case(
+        session,
+        fired=["water_excess.soggy_soil"],
+        approved_probes=["water_excess.soggy_soil"],
+    )
+
+    generate_for_plant(session, plant_id, run_id)
+
+    (payload,) = captured
+    assert queries
+    assert "water_excess.soggy_soil" in queries[0]
+    assert "Is there water_excess.soggy_soil?" in queries[0]
+    assert "Check fired." in queries[0]
+    assert payload.retrieved_passages == "Roots rot in standing water."
+    assert "SECRET RESEARCH TEXT" not in repr(payload)
 
 
 def test_each_step_records_the_approved_action_it_came_from(

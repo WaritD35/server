@@ -12,6 +12,7 @@ both can be driven by a scheduler with no HTTP in the picture; the endpoints
 below are argument parsing and status codes over those functions.
 """
 
+import logging
 import uuid
 from collections.abc import Sequence
 from typing import Annotated
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 from core.db import get_session
 from core.users import CurrentSuperuser
 from knowledge import generation, review, service
+from knowledge.indexing import delete_species_chunks, index_approved_probe_set
 from knowledge.interface import get_species_probes as _species_probes
 from knowledge.models import ProbeSet, ResearchDocument, Species
 from knowledge.schemas import (
@@ -29,6 +31,7 @@ from knowledge.schemas import (
     DocumentRead,
     GenerationOutcomeRead,
     GenerationReportRead,
+    PassageIndexRead,
     ProbeRead,
     ProbeSetDetail,
     ProbeSetRejection,
@@ -38,6 +41,8 @@ from knowledge.schemas import (
     SpeciesRead,
 )
 from mlops.knowledge import ReviewVerdict
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -276,6 +281,11 @@ def approve_probe_set(
     review.record_verdict(
         probe_set, verdict=ReviewVerdict.APPROVED, reviewer=user.email
     )
+    indexed = index_approved_probe_set(session, probe_set.id)
+    if not indexed.indexed:
+        logger.warning(
+            "passage index failed for probe set %s: %s", probe_set.id, indexed.error
+        )
     return _summary(
         probe_set,
         is_stale=service.is_probe_set_stale(session, probe_set.id),
@@ -338,6 +348,32 @@ def archive_probe_set(
         probe_set,
         is_stale=service.is_probe_set_stale(session, probe_set.id),
         probe_count=len(probe_set.probes),
+    )
+
+
+@router.post(
+    "/species/{species_code}/passages/reindex",
+    response_model=PassageIndexRead,
+    summary="Store passages for the species' currently approved research document",
+)
+def reindex_passages(
+    species_code: str, session: SessionDep, _user: CurrentSuperuser
+) -> PassageIndexRead:
+    probe_set = service.get_approved_probe_set(session, species_code)
+    if probe_set is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No approved probe set for this species"
+        )
+    delete_species_chunks(session, species_code)
+    session.commit()
+    result = index_approved_probe_set(session, probe_set.id)
+    return PassageIndexRead(
+        species_code=result.species_code,
+        probe_set_id=result.probe_set_id,
+        research_document_id=result.research_document_id,
+        passage_count=result.passage_count,
+        indexed=result.indexed,
+        error=result.error,
     )
 
 

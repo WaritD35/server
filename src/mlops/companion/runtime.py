@@ -14,6 +14,7 @@ instead (:data:`mlops.companion.prompts.BOOTSTRAP_MESSAGES`); a pinned
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
@@ -46,6 +47,7 @@ class CompanionConfig:
 
     model: str | None = None
     temperature: float = 0.7
+    max_tokens: int = prompts.MAX_REPLY_TOKENS
     tones: dict[str, str] = field(default_factory=dict)
     default_tone: str = ""
 
@@ -58,13 +60,14 @@ class CompanionConfig:
     ) -> CompanionConfig:
         raw: dict[str, Any] = dict(config) if isinstance(config, dict) else {}
         raw.update(overrides or {})
-        unknown = set(raw) - {"model", "temperature", "tones", "default_tone"}
+        unknown = set(raw) - {"model", "temperature", "max_tokens", "tones", "default_tone"}
         if unknown:
             logger.warning("ignoring unknown companion prompt config key(s): %s", sorted(unknown))
         tones = raw.get("tones")
         return cls(
             model=str(raw.get("model") or "").strip() or None,
             temperature=float(raw.get("temperature", 0.7)),
+            max_tokens=_reply_tokens(raw.get("max_tokens")),
             tones=(
                 {str(k): str(v) for k, v in tones.items()}
                 if isinstance(tones, dict)
@@ -137,7 +140,9 @@ def generate_companion_message(
     )
 
     try:
-        return _invoke(messages, config, prompt, plant_nickname, metadata).strip()
+        return limit_companion_text(
+            _invoke(messages, config, prompt, plant_nickname, metadata).strip()
+        )
     except Exception as e:
         logger.warning("Companion LLM generation failed or unavailable: %s", e)
         return None
@@ -154,7 +159,12 @@ def _invoke(
     # Imported here so tests (and the mock pipeline fixtures) can patch it.
     from mlops.factory import get_llm
 
-    model = get_llm(COMPONENT, temperature=config.temperature, model_override=config.model)
+    model = get_llm(
+        COMPONENT,
+        temperature=config.temperature,
+        model_override=config.model,
+        max_tokens=config.max_tokens,
+    )
     chain = model | StrOutputParser()
     # Tuples, not a ChatPromptTemplate: the compiled text may contain braces
     # (symptoms, care text) that a template would read as variables.
@@ -180,3 +190,36 @@ def _invoke(
         text = chain.invoke(chat, config=invoke_config)
         span.update(output=text)
         return text
+
+
+_SENTENCE_END: Final[re.Pattern[str]] = re.compile(r"(?<=[.!?])\s+")
+
+
+def _reply_tokens(value: Any) -> int:
+    """A positive generation cap, or the default when the config value is unusable."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return prompts.MAX_REPLY_TOKENS
+    if parsed < 32:
+        return prompts.MAX_REPLY_TOKENS
+    return min(parsed, 400)
+
+
+def limit_companion_text(text: str) -> str:
+    """Keep at most four sentences, and under :data:`prompts.MAX_REPLY_CHARS`."""
+    body = text.strip()
+    if not body:
+        return body
+    sentences = [part for part in _SENTENCE_END.split(body) if part.strip()]
+    kept = " ".join(sentences[: prompts.MAX_REPLY_SENTENCES]).strip()
+    if len(kept) <= prompts.MAX_REPLY_CHARS:
+        return kept
+    cut = kept[: prompts.MAX_REPLY_CHARS]
+    end = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"))
+    if end >= 40:
+        return cut[: end + 1].strip()
+    space = cut.rfind(" ")
+    if space >= 40:
+        return cut[:space].rstrip(" ,;:") + "."
+    return cut.rstrip() + "."

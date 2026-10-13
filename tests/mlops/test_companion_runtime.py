@@ -109,7 +109,11 @@ def test_bootstrap_prompt_when_langfuse_is_not_configured(
     # Braces in the care text are data, not template variables.
     assert "- Pause watering for {3} days." in user[1]
     assert "{{" not in system[1] + user[1]
-    assert model.kwargs == {"temperature": 0.7, "model_override": None}
+    assert model.kwargs == {
+        "temperature": 0.7,
+        "model_override": None,
+        "max_tokens": prompts.MAX_REPLY_TOKENS,
+    }
 
 
 def test_production_prompt_tones_and_config_come_from_langfuse(
@@ -130,7 +134,11 @@ def test_production_prompt_tones_and_config_come_from_langfuse(
     generate_companion_message("Monty", "Hmm.", [], "unknown_status")
 
     assert calls == [{"label": "production"}, {"label": "production"}]
-    assert model.kwargs == {"temperature": 0.3, "model_override": "gpt-x"}
+    assert model.kwargs == {
+        "temperature": 0.3,
+        "model_override": "gpt-x",
+        "max_tokens": prompts.MAX_REPLY_TOKENS,
+    }
     assert model.sent[0][0][1] == "LANGFUSE Sing!"
     assert model.sent[1][0][1] == "LANGFUSE Hm."
     assert set(prompt.variables) == set(prompts.SPEAK_VARIABLES)
@@ -165,6 +173,17 @@ def test_an_llm_failure_returns_none(model: FakeModel, monkeypatch: pytest.Monke
     model.answer = RuntimeError("LLM unreachable")
 
     assert generate_companion_message("Monty", "Dry.", ACTIONS) is None
+
+
+def test_a_long_reply_is_cut_after_four_sentences(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runtime, "is_configured", lambda _c: False)
+    model.answer = " ".join(f"Sentence {i} is here." for i in range(1, 9))
+
+    text = generate_companion_message("Monty", "Dry.", ACTIONS)
+
+    assert text == "Sentence 1 is here. Sentence 2 is here. Sentence 3 is here. Sentence 4 is here."
 
 
 def test_a_version_without_tones_uses_the_bootstrap_tones() -> None:

@@ -83,3 +83,14 @@ def get_care_knowledge(
         return doc.body[:max_chars]
 
     return None
+
+
+def search_approved_passages(session: Session, species_code: str, query_text: str) -> str:
+    """Hybrid search over the approved probe set's passages, or ``""``.
+
+    This is the reader assessment and advice use. It does not call
+    :func:`get_care_knowledge`.
+    """
+    from knowledge.retrieval import search_approved_passages as _search
+
+    return _search(session, species_code, query_text)
