@@ -28,9 +28,8 @@ specific, ordered care actions with their reasoning.
 ## Inputs
 
 - **Internal state & verdicts** from `assessment`.
-- **Approved** checks and actions only, from `knowledge.get_species_probes`
-  (research text is never read), and the fired checks from the run's
-  `assessment` observation.
+- **Approved** checks and actions from `knowledge.get_species_probes`, and the fired checks from the run's observation. Care steps come only from those actions.
+- Passages from `knowledge.search_approved_passages`, retrieved when approved actions exist. They inform the assessment. Approving a probe set is what stores the research document for that search.
 - External LLM — **text only, never images**.
 
 ## Outputs

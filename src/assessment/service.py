@@ -16,7 +16,7 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_species, get_species_probes
+from knowledge.interface import get_species, get_species_probes, search_approved_passages
 from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
@@ -430,9 +430,11 @@ def assess_frames(
     else:
         species_name = species.scientific_name
 
-    # Only approved, structured knowledge reaches the VLM: the species' approved
-    # checks. Research text is not sent.
+    # Approved checks, plus passages from the approved research document.
+    # Unapproved document text is not sent.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
+    checks = tuple(check for check, _ in probes)
+    retrieved = _retrieved_passages(session, plant.species_code, species_name, checks, plant_id)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
@@ -440,7 +442,8 @@ def assess_frames(
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),
-            checks=tuple(check for check, _ in probes),
+            checks=checks,
+            retrieved_passages=retrieved,
         )
     )
     meta = {check.slug: extra for check, extra in probes}
@@ -469,6 +472,33 @@ def assess_frames(
     session.commit()
     session.refresh(observation)
     return observation
+
+
+def _retrieved_passages(
+    session: Session,
+    species_code: str,
+    species_name: str,
+    checks: tuple[ProbeCheck, ...],
+    plant_id: uuid.UUID,
+) -> str:
+    """Passages for the checks the VLM is about to answer, or ``""``."""
+    try:
+        return search_approved_passages(session, species_code, _passage_query(species_name, checks))
+    except Exception:
+        logger.warning(
+            "passage search failed for plant %s; assessment without passages",
+            plant_id,
+            exc_info=True,
+        )
+        return ""
+
+
+def _passage_query(species_name: str, checks: tuple[ProbeCheck, ...]) -> str:
+    """Species name plus each check's question, so retrieval matches what is asked."""
+    lines = [species_name]
+    for check in checks:
+        lines.append(f"{check.question} {check.worse_looks_like}")
+    return "\n".join(lines)
 
 
 def _approved_checks(

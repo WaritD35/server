@@ -17,9 +17,14 @@ one observation, then apply the 0-token Event Engine.
   `species_code` with a warning; tracing only).
 - Ask the species' **approved probes** (`knowledge.get_species_probes`) as
   checks in the same VLM prompt: screening probes first, then by `priority`, at
-  most `MAX_PROBE_CHECKS` (8). A stale set is still used, with a warning. These
-  are the **only** knowledge the VLM sees: approved and structured. Research text
-  (`get_care_knowledge`) is not sent.
+  most `MAX_PROBE_CHECKS` (8). A stale set is still used, with a warning.
+- Also pass passages from `knowledge.search_approved_passages`, queried with the
+  species name and the checks about to be asked. They are reference text for
+  recognising a listed check. `get_care_knowledge` is not sent. A search failure
+  leaves the passages empty and the probe still runs.
+- Each VLM JSON answer is checked against `RunObservation`'s JSON Schema, then
+  as that model. A failure is repaired once; a run that stays invalid is dropped
+  and does not join the vote.
 - Map the `ProbeVerdict` onto the observation: `health_status` ← verdict,
   `confidence` ← `consensus.agreement`, `observations_json` ← verdict
   observations (`type`, `severity`, `description`), `consensus_json` ←
@@ -42,8 +47,9 @@ one observation, then apply the 0-token Event Engine.
 ## Inputs
 
 - **Frame pair** from `capture.interface.get_frame_pair` / `read_frame`.
-- **Species name and approved probes** from `knowledge.interface.get_species`
-  and `get_species_probes`.
+- **Species name, approved probes, and approved passages** from
+  `knowledge.interface.get_species`, `get_species_probes`, and
+  `search_approved_passages`.
 - **Plant identity** (`species_code`) from `registry`.
 - VLM inference via `mlops.assessment.run_probe` (`VLM_PROVIDER=local|vllm`).
 

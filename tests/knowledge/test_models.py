@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, text
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from knowledge.db import Base
 from knowledge.hashing import content_hash
 from knowledge.models import (
+    KnowledgeChunk,
     Probe,
     ProbeAction,
     ProbeExemplar,
@@ -59,6 +61,14 @@ def test_metadata_covers_every_table() -> None:
         "probe_exemplar",
         "knowledge_chunks",
     }
+
+
+def test_chunk_provenance_columns_and_fts_migration() -> None:
+    columns = set(KnowledgeChunk.__table__.columns.keys())
+    assert {"research_document_id", "probe_set_id", "source_content_hash"} <= columns
+    migration = Path("alembic/versions/006_knowledge_chunk_provenance.py").read_text()
+    assert "to_tsvector('english', content)" in migration
+    assert "USING GIN" in migration
 
 
 def test_generation_round_trips(session_factory: sessionmaker[Session]) -> None:
