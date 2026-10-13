@@ -10,10 +10,9 @@ name: pet-plant
 #
 # Self-hosted inference (VLM served with vLLM, segmentation) runs on separate
 # infrastructure and is NOT part of this file — point VLM_API_BASE /
-# SEGMENTATION_ENDPOINT at it via .env. VLM_PROVIDER=vllm (default) talks to
-# that endpoint; VLM_PROVIDER=local runs transformers in-process and is not
-# what this image is built for. Plant photos are uploaded by the planter devices
-# over HTTP (POST /capture/devices/me/frames); no camera is attached here.
+# SEGMENTATION_ENDPOINT at it via .env when VLM_PROVIDER=vllm. The local
+# assessment backend loads InternVL weights from ./models. Photos are uploaded
+# over HTTP by a device or client; no webcam is attached to this server container.
 
 services:
   postgres:
@@ -34,16 +33,16 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: bitnamilegacy/minio:latest
+    command: server /bitnami/minio/data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
       - "9000:9000"   # S3 API
-      - "9001:9001"   # web console
+      - "9002:9001"   # web console
     volumes:
-      - minio-data:/data
+      - minio-data:/bitnami/minio/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -52,7 +51,7 @@ services:
       retries: 10
 
   createbuckets:
-    image: minio/mc:latest
+    image: bitnamilegacy/minio-client:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -67,14 +66,19 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    gpus: all
     env_file:
       - path: .env
         required: false
     environment:
       DATABASE_URL: postgresql+psycopg://petplant:petplant@postgres:5432/petplant
       MINIO_ENDPOINT: minio:9000
+      VLM_PROVIDER: local
+      VLM_LOCAL_MODEL_PATH: models/internvl3_5-2b
     ports:
       - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro
     restart: unless-stopped
     depends_on:
       postgres:

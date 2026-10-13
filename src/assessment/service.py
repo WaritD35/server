@@ -16,7 +16,7 @@ from assessment.schemas import (
 )
 from capture.interface import get_frame_pair, read_frame
 from core.storage import bucket_names
-from knowledge.interface import get_species, get_species_probes
+from knowledge.interface import get_care_knowledge, get_species, get_species_probes
 from mlops.assessment import ProbeCheck, ProbeInput, run_probe
 from registry.interface import get_plant
 
@@ -430,13 +430,16 @@ def assess_frames(
     else:
         species_name = species.scientific_name
 
-    # Only approved, structured knowledge reaches the VLM: the species' approved
-    # checks. Research text is not sent.
+    plant_knowledge = get_care_knowledge(session, plant.species_code) or ""
+
+    # The probes_2-style prompt uses free plant knowledge again. Approved structured
+    # checks are still passed for newer prompt versions that include {{probe_checks}}.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
             species=species_name,
+            plant_knowledge=plant_knowledge,
             previous_image=read_frame(pair.previous),
             current_image=read_frame(pair.current),
             run_id=str(run_id),
@@ -511,3 +514,4 @@ def _approved_checks(
         )
         for p in ordered[:MAX_PROBE_CHECKS]
     ]
+

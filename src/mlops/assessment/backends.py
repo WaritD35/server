@@ -127,14 +127,20 @@ def _load_local_vlm(model_path: str) -> tuple[Any, Any]:
     import torch
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
-    if not Path(model_path).exists():
+    # Accept either a local directory or a Hugging Face model id.
+    if not Path(model_path).exists() and "/" not in model_path:
         raise VLMBackendUnavailableError(f"VLM model path does not exist: {model_path}")
 
     processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+    use_cuda = torch.cuda.is_available()
+    dtype = torch.bfloat16 if use_cuda and torch.cuda.is_bf16_supported() else (
+        torch.float16 if use_cuda else torch.float32
+    )
     vlm = AutoModelForImageTextToText.from_pretrained(
         model_path,
-        dtype=torch.float16,
+        torch_dtype=dtype,
         device_map="auto",
+        low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
     return processor, vlm

@@ -34,15 +34,12 @@ PROBE_PROMPT_TYPE: Final[str] = "text"
 
 #: The variables the ``PROBE_PROMPT`` template is compiled with — the contract
 #: between the prompt author and :mod:`mlops.assessment.runtime`.
-#: ``probe_checks`` is the species' approved ``knowledge`` probes, one block
-#: each, or ``""`` — the only knowledge the VLM sees. A version without
-#: ``{{probe_checks}}`` still runs; its checks are not asked.
-PROBE_VARIABLES: Final[tuple[str, ...]] = ("probe_checks",)
+#: ``plant_knowledge`` is the free species knowledge block used by the older two-image probe. ``probe_checks`` remains available for newer prompt versions, but the probes_2-style bootstrap prompt does not ask them.
+PROBE_VARIABLES: Final[tuple[str, ...]] = ("plant_knowledge", "probe_checks")
 
 #: Variables older prompt versions still contain, compiled to ``""`` so their
-#: placeholder never reaches the VLM. ``plant_knowledge`` carried free research
-#: text, which assessment no longer sends.
-RETIRED_VARIABLES: Final[dict[str, str]] = {"plant_knowledge": ""}
+#: placeholder never reaches the VLM.
+RETIRED_VARIABLES: Final[dict[str, str]] = {}
 
 #: How long a fetched prompt is reused before Langfuse is asked again. This is
 #: the request path, so a promoted label takes effect within a minute.
@@ -54,58 +51,88 @@ CACHE_TTL_SECONDS: Final[int] = 60
 #: :func:`~mlops.assessment.aggregate.derive_run_decision` turns into the health
 #: status.
 BOOTSTRAP_PROMPT: Final[str] = """\
-You are a plant health inspector. You are given two photos of the same potted plant,
-taken from the same camera position at different times.
+You inspect two photographs of the same plant and describe only what is visible.
+{{plant_knowledge}}
 
-- Image 1 is the previous photo.
-- Image 2 is the current photo.
+Image input:
+- Image 1 = first plant observation
+- Image 2 = second plant observation
 
-{{probe_checks}}
+Task:
+Describe both plant images separately, then describe only the visible differences between them. Focus on leaf posture, leaf color, visible damage, pot or soil context if visible, and any other visible cues.
 
-Describe only what is visible. Do not guess at causes, and do not give care advice.
-If something cannot be seen clearly, say "cannot_tell" instead of guessing.
+Important:
+- Describe Image 1 and Image 2 separately before describing differences.
+- Use plant knowledge only to interpret visible traits for the stated species.
+- Do not diagnose the biological cause.
+- Do not give care advice.
+- Do not infer dates, watering, disease, or causes from the image.
+- Do not claim anything that is not visible.
+- If a region is unclear, occluded, or outside an image, say cannot_tell for that field.
 
-Return exactly one JSON object and nothing else, with this shape:
-
+Return ONLY valid JSON in exactly this format:
 {
   "image_1_observation": {
-    "image_description": "<one sentence about the whole plant in Image 1>",
-    "leaf_posture": "<upright | slightly drooping | drooping | ...>",
-    "leaf_color": "<the leaf colour, including any yellow or brown areas>",
-    "visible_damage": "<tears, spots, dry tips, or none>",
+    "image_description": "one or two sentences describing image 1",
+    "leaf_posture": "visible posture in image 1",
+    "leaf_color": "visible color patterns in image 1",
+    "visible_damage": "visible damage in image 1",
     "visible_stress_level": "none | mild | moderate | severe | cannot_tell"
   },
-  "image_2_observation": { <the same five fields, for Image 2> },
-  "visible_differences": ["<one change from Image 1 to Image 2 per item>"],
+  "image_2_observation": {
+    "image_description": "one or two sentences describing image 2",
+    "leaf_posture": "visible posture in image 2",
+    "leaf_color": "visible color patterns in image 2",
+    "visible_damage": "visible damage in image 2",
+    "visible_stress_level": "none | mild | moderate | severe | cannot_tell"
+  },
+  "visible_differences": [
+    "short visible difference between image 1 and image 2"
+  ],
   "current_observations": [
     {
-      "type": "<one of the observation types listed below>",
-      "severity": "mild | moderate | severe",
-      "description": "<what is visible in Image 2>"
+      "type": "leaf_yellowing",
+      "severity": "mild",
+      "description": "Yellow discoloration is visible on parts of the leaves."
+    },
+    {
+      "type": "brown_edges",
+      "severity": "mild",
+      "description": "Brown discoloration is visible along some leaf edges."
     }
   ],
-  "comparison_summary": "<one or two sentences comparing the two photos>",
-  "model_confidence": <a number from 0.0 to 1.0>,
-  "probe_findings": [
-    {
-      "slug": "<the id of a species-specific check>",
-      "answer": "yes | no | cannot_tell",
-      "evidence": "<what in Image 2 supports the answer>"
-    }
-  ]
+  "comparison_summary": "short description of how the visible plant condition differs",
+  "model_confidence": 0.0
 }
 
-Rules:
-- "current_observations" lists health concerns visible in Image 2 only. Use an empty
-  list when Image 2 shows none, and then set Image 2's "visible_stress_level" to "none".
-- "visible_differences" is an empty list when nothing changed.
-- Observation types: leaf_yellowing, brown_edges, drooping, curling, visible_damage,
-  discoloration, other.
-- Use only the values listed for "visible_stress_level", "type" and "severity".
-- "probe_findings" has exactly one entry per species-specific check listed above, and
-  an empty list when none are listed. Answer "yes" only when Image 2 looks like the
-  check's "yes looks like" and not like its "not this"; answer "cannot_tell" when
-  Image 2 does not show it clearly.
+Field rules:
+- Use separate observations for Image 1 and Image 2.
+- visible_stress_level must be exactly one of: none, mild, moderate, severe, cannot_tell.
+- Use visible_stress_level "none" when the plant appears visually healthy, with upright or naturally relaxed leaves, mostly even green color, and no clear visible damage.
+- Use visible_stress_level "mild" when there are small visible concerns, such as slight drooping, slight yellowing, minor brown tips, or limited edge damage, while most leaves still look healthy.
+- Use visible_stress_level "moderate" when stress is clearly visible across multiple leaves, such as noticeable drooping, yellowing, curling, browning edges, dry tips, or a generally weakened posture.
+- Use visible_stress_level "severe" when the plant appears strongly stressed, with collapsed or heavily drooping leaves, widespread yellow/brown areas, extensive dry or dead-looking tissue, or severe visible damage.
+- Use visible_stress_level "cannot_tell" when the plant condition cannot be judged because the plant is unclear, heavily occluded, too cropped, or the relevant regions are not visible.
+- visible_differences should list concrete visual differences only.
+- current_observations should describe visible health concerns in Image 2 only.
+- current_observations should be an empty list when Image 2 looks healthy or when no concrete concern is visible.
+- current_observations severity must be exactly one of: mild, moderate, severe.
+- current_observations type must be exactly one of: leaf_yellowing, brown_edges, drooping, curling, visible_damage, discoloration, other.
+- Use one current_observations item per visible symptom. Do not combine symptoms into one type such as yellowing_brown_edges.
+- Each current_observations item must describe only the symptom specified by its type.
+- Write a distinct, symptom-specific description for each observation.
+- For leaf_yellowing, describe only the visible yellow discoloration, including its location and extent when identifiable.
+- For brown_edges, describe only the visible brown discoloration along leaf edges or tips.
+- For drooping, describe only the visible downward bending or hanging of leaves.
+- For curling, describe only the visible curling or rolling of leaves.
+- Do not mention other symptom types in the same description.
+- Do not reuse the same description across different observation types.
+- Describe the visible evidence rather than making general statements about plant stress.
+- If the location or extent of a symptom is unclear, do not invent those details.
+- The JSON examples are illustrative only. Include a symptom only when it is clearly visible in Image 2; do not copy example observations.
+- Do not copy the list of allowed types into the type field.
+- comparison_summary should be short and grounded in visible cues.
+- model_confidence should be your own stated confidence from 0.0 to 1.0 that the visual observations are correct. This value will be recorded but not trusted as the main confidence.
 """
 
 #: The ``config`` :mod:`mlops.assessment.seed` registers with
@@ -114,9 +141,8 @@ Rules:
 BOOTSTRAP_CONFIG: Final[dict[str, Any]] = {
     "runs": 5,
     "temperature": 0.7,
-    # Room for one probe_findings entry per approved check on top of the
-    # observation itself.
-    "max_new_tokens": 1536,
+    # The probes_2-style prompt asks for the observation JSON only.
+    "max_new_tokens": 1024,
 }
 
 
@@ -152,3 +178,4 @@ def get(
             f"Langfuse prompt {name!r} is a chat prompt; it must be a text prompt"
         )
     return prompt
+

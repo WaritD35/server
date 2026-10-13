@@ -97,9 +97,7 @@ def test_happy_path_writes_one_observation_mapped_from_the_verdict(
     (sent,) = probe.calls
     assert sent.plant_id == str(plant_id)
     assert sent.species == "Spathiphyllum wallisii"
-    # The research text exists but is not approved knowledge, so it is not sent.
-    assert not hasattr(sent, "plant_knowledge")
-    assert "Keep the soil moist." not in repr(sent)
+    assert sent.plant_knowledge == "Keep the soil moist."
     assert sent.checks == ()
     assert sent.previous_image == f"jpeg:{pair.previous.object_key}".encode()
     assert sent.current_image == f"jpeg:{pair.current.object_key}".encode()
@@ -265,3 +263,4 @@ def test_checks_the_prompt_did_not_ask_are_not_stored(
     assert len(probe.calls[0].checks) == 1
     assert stored.probe_set_id is None
     assert stored.probe_results_json is None
+

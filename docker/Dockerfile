@@ -20,7 +20,7 @@ WORKDIR /app
 # Cached until pyproject.toml / uv.lock change.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --group vlm-local
 
 # ---------- runtime ----------
 FROM python:3.12-slim-bookworm AS runtime
@@ -28,9 +28,11 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src"
+    PYTHONPATH="/app/src" \
+    HF_HOME="/app/.cache/huggingface"
 
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app
+RUN mkdir -p /app/.cache/huggingface && chown -R app:app /app/.cache
 
 WORKDIR /app
 

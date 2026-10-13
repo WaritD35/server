@@ -81,7 +81,7 @@ class FakePrompt:
 
     def compile(self, **variables: Any) -> str:
         self.compiled_with.append(variables)
-        return f"Describe the plant.\n{variables.get('probe_checks', '')}"
+        return f"Describe the plant.\n{variables.get('plant_knowledge', '')}\n{variables.get('probe_checks', '')}"
 
 
 class FakeBackend:
@@ -226,15 +226,19 @@ def test_the_prompt_is_compiled_with_exactly_the_declared_variables(
 
     (compiled,) = prompt.compiled_with
     assert set(compiled) == set(prompts.PROBE_VARIABLES) | set(prompts.RETIRED_VARIABLES)
-    # An older version's retired placeholder compiles to nothing: no research text
-    # reaches the VLM.
     assert compiled["plant_knowledge"] == ""
 
 
-def test_no_checks_compile_to_an_empty_section() -> None:
+def test_no_checks_compile_to_empty_sections() -> None:
     probe = ProbeInput(plant_id="p", species="s", previous_image=b"", current_image=b"")
 
-    assert probe.as_prompt_variables() == {"probe_checks": ""}
+    assert probe.as_prompt_variables() == {"plant_knowledge": "", "probe_checks": ""}
+
+
+def test_plant_knowledge_compiles_to_the_probes_2_section() -> None:
+    probe = dataclasses.replace(PROBE, plant_knowledge="Keep the soil moist.")
+
+    assert probe.as_prompt_variables()["plant_knowledge"] == "Plant knowledge:\\nKeep the soil moist."
 
 
 # --------------------------------------------------------------------------- #
@@ -709,3 +713,4 @@ def test_vllm_connection_failure_becomes_backend_unavailable(
 
     with pytest.raises(backends.VLMBackendUnavailableError):
         backend.generate("p", [b"a"], model="m", temperature=0.0, max_new_tokens=8)
+
