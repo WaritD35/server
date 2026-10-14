@@ -153,6 +153,8 @@ class ProbeInput:
     previous_image: bytes
     #: JPEG bytes. The prompt calls this frame Image 2.
     current_image: bytes
+    #: Free species knowledge used by the probes_2-style prompt.
+    plant_knowledge: str = ""
     #: The orchestrator (or debug) run, for tracing only: it goes on the
     #: Langfuse trace's metadata so a failed ``pipeline_run`` can be found there.
     run_id: str | None = None
@@ -162,11 +164,13 @@ class ProbeInput:
     def as_prompt_variables(self) -> dict[str, str]:
         """The values the Langfuse template is compiled with.
 
-        Keys are exactly :data:`~mlops.assessment.prompts.PROBE_VARIABLES`. The
-        checks section is the whole block or ``""``, so the template needs no
-        conditional. The checks are the only knowledge sent: approved and
-        structured, never searched or free research text.
+        Keys are exactly :data:`~mlops.assessment.prompts.PROBE_VARIABLES`.
+        ``plant_knowledge`` is formatted as the optional section used by the
+        older probes_2 prompt. The checks section remains available for prompt
+        versions that still ask species-specific approved probes.
         """
+        knowledge = self.plant_knowledge.strip()
+        plant_knowledge = f"Plant knowledge:\\n{knowledge}" if knowledge else ""
         checks = ""
         if self.checks:
             lines = [
@@ -176,7 +180,7 @@ class ProbeInput:
             for check in self.checks:
                 lines.extend(check.as_prompt_lines())
             checks = "\n".join(lines)
-        return {"probe_checks": checks}
+        return {"plant_knowledge": plant_knowledge, "probe_checks": checks}
 
     def trace_metadata(self) -> dict[str, str]:
         """Searchable trace metadata: ``plant_id`` and, when known, ``run_id``."""
@@ -460,3 +464,4 @@ def _repair_prompt(text: str, raw: str, error: Exception) -> str:
         f"Problems:\n{detail}\n\n"
         f"Your previous answer:\n{raw}"
     )
+

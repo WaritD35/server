@@ -16,7 +16,7 @@ class QualityConfig:
     min_height: int = 480
     min_brightness: float = 40.0
     max_brightness: float = 220.0
-    min_blur_score: float = 100.0
+    min_blur_score: float = 50.0
 
 
 @dataclass(frozen=True)
