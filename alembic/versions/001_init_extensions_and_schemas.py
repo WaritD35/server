@@ -28,14 +28,11 @@ SCHEMAS = [
 
 
 def upgrade() -> None:
-    # 1. Enable pgvector extension
-    op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
-
-    # 2. Create bounded context schemas
+    # 1. Create bounded context schemas
     for schema in SCHEMAS:
         op.execute(sa.text(f'CREATE SCHEMA IF NOT EXISTS "{schema}";'))
 
-    # 3. Create initial tables for all bounded contexts
+    # 2. Create initial tables for all bounded contexts
     bind = op.get_bind()
     import action.db
     import action.models  # noqa: F401
@@ -67,13 +64,11 @@ def upgrade() -> None:
         meta.create_all(bind=bind)
 
     advice.models.CarePlan.__table__.create(bind=bind, checkfirst=True)
-    advice.models.Diagnosis.__table__.create(bind=bind, checkfirst=True)
 
-    # 4. Create knowledge freshness view
+    # 3. Create knowledge freshness view
     knowledge.db.create_views(bind)
 
 
 def downgrade() -> None:
     for schema in reversed(SCHEMAS):
         op.execute(sa.text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE;'))
-    op.execute(sa.text("DROP EXTENSION IF EXISTS vector;"))

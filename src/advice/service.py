@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from advice.models import CarePlan, CarePlanAction, Diagnosis
+from advice.models import CarePlan, CarePlanAction
 from assessment.interface import (
     get_observation_by_run,
     get_recent_observations,
@@ -142,7 +142,6 @@ def generate_for_plant(
         status_label=result.status_label,
         assessment=result.assessment,
         confidence=result.confidence,
-        actions_json=result.actions,
     )
     session.add(plan)
     session.flush()
@@ -165,14 +164,6 @@ def generate_for_plant(
             expect_max_hours=act.get("expect_max_hours"),
         )
         session.add(action_item)
-
-    # Persist Diagnosis record
-    diag = Diagnosis(
-        plant_id=plant_id,
-        run_id=run_id,
-        diagnosis=result.assessment,
-    )
-    session.add(diag)
 
     session.commit()
     session.refresh(plan)

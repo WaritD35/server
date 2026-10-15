@@ -91,7 +91,6 @@ Another owner's plant answers **404**, not 403, so ids cannot be probed.
 from registry import (
     list_plant_ids,       # (session, *, owner_id=, species_code=, include_archived=False) -> list[UUID]
     get_plant,            # (session, plant_id) -> PlantRead | None       (archived ones too)
-    get_plants,           # (session, [plant_id, ...]) -> {plant_id: PlantRead}
     get_plant_by_device,  # (session, physical_id) -> PlantRead | None    (live, current owner's only)
     is_plant_owned_by,    # (session, plant_id, user_id) -> bool
     PlantRead,

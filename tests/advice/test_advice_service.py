@@ -9,11 +9,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from advice import service as advice_service
-from advice.interface import (
-    get_care_plan,
-    get_care_plan_actions,
-    get_latest_care_plan_for_plant,
-)
+from advice.interface import get_care_plan, get_latest_care_plan_for_plant
 from advice.service import generate_for_plant
 from assessment.models import Observation, TriggerResultRecord
 from assessment.schemas import HealthStatus, TriggerDecision
@@ -97,11 +93,6 @@ def test_generate_advice_creates_plan_on_care_advice_required(session: Session):
     latest = get_latest_care_plan_for_plant(session, plant_id)
     assert latest is not None
     assert latest.id == plan.id
-
-    # Test dedicated get_care_plan_actions helper
-    rel_actions = get_care_plan_actions(session, plan.care_plan_id)
-    assert len(rel_actions) == len(plan.actions)
-    assert rel_actions[0].action_id == plan.actions[0].action_id
 
 
 # --------------------------------------------------------------------------- #

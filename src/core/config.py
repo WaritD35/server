@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     minio_secure: bool
     minio_bucket_captures: str
     minio_bucket_frames_derived: str
-    minio_bucket_exemplars: str
     minio_bucket_eval_sets: str
 
     # --- auth (OAuth2 / JWT, role-based) ---

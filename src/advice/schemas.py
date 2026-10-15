@@ -30,23 +30,6 @@ class CareAction(BaseModel):
     expect_max_hours: int | None = None
 
 
-class CarePlanActionRead(BaseModel):
-    id: uuid.UUID
-    care_plan_pk: uuid.UUID
-    care_plan_id: str
-    action_id: str
-    priority: int
-    action: str
-    label: str
-    action_type: str
-    approved_action_id: uuid.UUID | None = None
-    check_slug: str | None = None
-    urgency: str | None = None
-    expect_typical_hours: int | None = None
-    expect_max_hours: int | None = None
-    created_at: datetime
-
-
 class CarePlanRead(BaseModel):
     id: uuid.UUID
     care_plan_id: str
@@ -58,10 +41,3 @@ class CarePlanRead(BaseModel):
     actions: list[CareAction] = Field(default_factory=list)
     created_at: datetime
 
-
-class DiagnosisRead(BaseModel):
-    id: uuid.UUID
-    plant_id: uuid.UUID
-    run_id: uuid.UUID | None = None
-    diagnosis: str
-    created_at: datetime

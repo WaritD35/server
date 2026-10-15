@@ -155,7 +155,6 @@ def list_unconverted_documents(
 
 _PROBE_LOADERS = (
     selectinload(ProbeSet.probes).selectinload(Probe.actions),
-    selectinload(ProbeSet.probes).selectinload(Probe.exemplars),
 )
 
 

@@ -54,11 +54,11 @@ planter ──POST /capture/devices/me/frames──▶ capture (vision: quality 
 |---|---------|---------|------|------------------------|--------------|
 | 1 | Plant Registry | `src/registry` | Identity & physical anchoring — plants, owners, species assignment, camera placement | `registry` | — |
 | 2 | Capture & Vision | `src/capture` | Visual data extraction — photos uploaded by planter devices (`POST /capture/devices/me/frames`), quality-check, preprocess, align frames | `vision` | `captures`, `frames-derived` |
-| 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species: checks, their basis and approved actions) | `knowledge` | `exemplars` |
+| 3 | Species & Care Knowledge | `src/knowledge` | Botanical knowledge base — care needs, probe authoring (approved probe set per species: checks, their basis and approved actions) | `knowledge` | — |
 | 4 | Assessment | `src/assessment` | Internal-state inference — run the approved checks on the VLM, validate each JSON answer, aggregate N runs into verdict + severity + evidence + agreement | `assessment` | — |
 | 5 | Care Advice | `src/advice` | Interpretable reasoning — turn verdicts + history into a diagnosis, ranked actions, rationale (external LLM, chooses only from the approved actions of the checks that fired) | `advice` | — |
 | 6 | Companion | `src/companion` | Ambient UI & persona — map internal state to moods / expressions / utterances, run the interaction loop, process care acknowledgements | `companion` | — |
-| 7 | MLOps | `src/mlops` | **Not a bounded context — a shared library.** Every VLM / LLM call in the system, plus the prompt management, tracing and offline experiments behind them (Langfuse). One subpackage per LLM-using component | — (none: Langfuse holds it) | `eval-sets`, `exemplars` (read) |
+| 7 | MLOps | `src/mlops` | **Not a bounded context — a shared library.** Every VLM / LLM call in the system, plus the prompt management, tracing and offline experiments behind them (Langfuse). One subpackage per LLM-using component | — (none: Langfuse holds it) | `eval-sets` |
 | 8 | System Integration & Infrastructure | `src/orchestrator` + `src/core` | End-to-end orchestration & operations — event routing, batch workflow, device sync (`orchestrator`); cross-cutting infrastructure (`core`) | `orchestrator` (event outbox / job runs / device sync), `auth` (`core`) | — |
 
 **HTTP surface.** `main_web` builds the FastAPI app: it mounts `core`'s health
@@ -153,7 +153,7 @@ Prompt experiments are not jobs — they are run on demand with
 | ORM / DB toolkit | **SQLAlchemy** | fixed |
 | Validation / models | **Pydantic** | fixed |
 | Relational store | **PostgreSQL** | one instance, one schema per context |
-| Object store | **MinIO** | S3-compatible; frames, derived crops, exemplars, evaluation sets |
+| Object store | **MinIO** | S3-compatible; frames, derived crops, evaluation sets |
 | LLMOps | **Langfuse** | Prompt management, tracing, datasets, scores — see `src/mlops`. Cloud or self-hosted; `LANGFUSE_HOST` decides |
 | LLM framework | **LangChain** (+ `langchain-openai`) | Chains / agents; v1 bundles `langgraph`. Used only inside `src/mlops` |
 
@@ -184,11 +184,10 @@ Indicative bucket layout (exact names/prefixes finalised by the owning contexts)
 |--------|-------|----------|
 | `captures` | capture | Raw uploaded frames / capture batches |
 | `frames-derived` | capture | Segmented crops, aligned and composited canvases |
-| `exemplars` | knowledge / mlops | Versioned few-shot exemplar images |
 | `eval-sets` | mlops | Images referenced by Langfuse dataset items (dataset item JSON lives in Langfuse) |
 
 Retention: captures are kept in our own store so owner corrections become new
-evaluation cases and candidate exemplars.
+evaluation cases.
 
 ---
 

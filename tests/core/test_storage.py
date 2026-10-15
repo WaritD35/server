@@ -38,5 +38,5 @@ def test_bucket_names_come_from_settings(monkeypatch) -> None:
     names = bucket_names()
 
     assert names["captures"] == "captures-test"
-    assert set(names) == {"captures", "frames_derived", "exemplars", "eval_sets"}
+    assert set(names) == {"captures", "frames_derived", "eval_sets"}
     _reset_caches()

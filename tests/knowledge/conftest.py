@@ -24,7 +24,6 @@ from knowledge.db import Base, create_views
 from knowledge.models import (
     Probe,
     ProbeAction,
-    ProbeExemplar,
     ProbeSet,
     ResearchDocument,
     Species,
@@ -103,7 +102,7 @@ def add_species(session_factory: sessionmaker[Session]) -> Callable[..., None]:
 
 @pytest.fixture
 def seed_full() -> SeedFn:
-    """Insert species → document → probe_set → probe → action + exemplar."""
+    """Insert species → document → probe_set → probe → action."""
 
     def _seed(
         session: Session,
@@ -163,15 +162,6 @@ def seed_full() -> SeedFn:
                 expect_typical_hours=12,
                 expect_max_hours=48,
                 expected_signal="leaf_recovery",
-            )
-        )
-        session.add(
-            ProbeExemplar(
-                probe_id=probe.id,
-                role="worse_severe",
-                storage_key=f"{species_code}/{slug}/{probe_set.id}.jpg",
-                label={"verdict": "worse", "severity": 2},
-                origin="own_capture",
             )
         )
         session.commit()

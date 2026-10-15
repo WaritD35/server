@@ -44,15 +44,6 @@ def get_plant(session: Session, plant_id: uuid.UUID) -> PlantRead | None:
     return None if plant is None else PlantRead.model_validate(plant)
 
 
-def get_plants(session: Session, plant_ids: list[uuid.UUID]) -> dict[uuid.UUID, PlantRead]:
-    """Several plants in one call, keyed by id; unknown ids are simply absent."""
-    return {
-        pid: plant
-        for pid in dict.fromkeys(plant_ids)
-        if (plant := get_plant(session, pid)) is not None
-    }
-
-
 def get_plant_by_device(session: Session, device_id: str) -> PlantRead | None:
     """The live plant a physical device photographs, or ``None`` if unbound.
 

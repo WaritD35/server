@@ -42,7 +42,6 @@ def bucket_names(settings: Settings | None = None) -> dict[str, str]:
     return {
         "captures": settings.minio_bucket_captures,
         "frames_derived": settings.minio_bucket_frames_derived,
-        "exemplars": settings.minio_bucket_exemplars,
         "eval_sets": settings.minio_bucket_eval_sets,
     }
 

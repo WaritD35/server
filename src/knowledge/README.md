@@ -5,10 +5,8 @@
 Botanical knowledge base. A person researches a species and writes what they
 found as free text; that text is fed to an LLM, which turns it into **probes**
 (single-question checks) and the **actions** to take when each one fires.
-Few-shot **exemplar images** for the probes are kept in MinIO.
 
 - **Owns (Postgres schema):** `knowledge`
-- **Owns (MinIO):** `exemplars`
 - **Feeds:** `assessment` (`get_species`, and the approved probes as VLM
   checks), `advice` (the approved actions). Only **approved, structured**
   knowledge leaves this context for the pipeline; research text does not.
@@ -27,8 +25,7 @@ species
   └── research_document      human-written research text — the LLM input, kept verbatim
         └── probe_set        one LLM generation run (model, prompt version, approval, status)
               └── probe      one single-question check (care_need, question, worse/better/not_this, …)
-                    ├── probe_action     what to do when it fires (+ how long the effect takes)
-                    └── probe_exemplar   few-shot image: object key in the `exemplars` bucket + label
+                    └── probe_action     what to do when it fires (+ how long the effect takes)
 ```
 
 | Table | Holds |
@@ -38,7 +35,6 @@ species
 | `probe_set` | FK to the document, `species_code`, `source_content_hash`, `llm_model`, `prompt_version`, `langfuse_trace_id`, `status` (`draft`/`approved`/`archived`), `generated_at`, `approved_by` / `approved_at`, `rejected_by` / `rejected_at`, `archived_at`, `note` |
 | `probe` | FK to the set, `slug` (unique per set), `care_need`, `priority`, `is_screening`, `question`, `worse_looks_like`, `better_looks_like`, `not_this`, `evidence_quote` |
 | `probe_action` | FK to the probe, `instruction`, `urgency`, `expect_typical_hours`, `expect_max_hours` (grace period), `expected_signal` |
-| `probe_exemplar` | FK to the probe, `role`, `storage_key` (in the `exemplars` bucket), `content_type`, `label` (JSONB), `origin`, `license`, `caption` |
 
 ### Singletons enforced in the database
 
@@ -128,7 +124,7 @@ All endpoints require an authenticated **superuser** (`core.users.CurrentSuperus
 | `GET /knowledge/documents/{id}` | one document (active or archived) |
 | `POST /knowledge/probe-sets/generate?species_code=&limit=` | generate a `draft` set for every document in the backlog; `limit` is 1–50 and defaults to 10 |
 | `GET /knowledge/species/{species_code}/probe-sets` | every probe set for the species with `status`, `is_stale`, `probe_count` |
-| `GET /knowledge/probe-sets/{id}` | one set with its probes (each carrying `actions` and `exemplars`) and a `trace_url` to the generation run behind it |
+| `GET /knowledge/probe-sets/{id}` | one set with its probes (each carrying its `actions`) and a `trace_url` to the generation run behind it |
 | `POST /knowledge/probe-sets/{id}/approve` | make this the species' approved set, archiving the incumbent (`approved_by` = caller's email); works from `draft` **and** from `archived` (swapping an older set back in); 409 if already approved or it has no probes |
 | `POST /knowledge/probe-sets/{id}/reject` | turn down a `draft` with a required `comment`; 409 for any other status |
 | `POST /knowledge/probe-sets/{id}/archive` | `approved` → `archived`, leaving the species with no approved set; 409 otherwise |
@@ -170,22 +166,18 @@ version nothing, and *why* it was wrong is the whole value of a human review.
 
 ```python
 from knowledge import get_species_probes   # (session, species_code) -> SpeciesProbesBundle | None
-from knowledge.interface import get_species, get_care_knowledge
+from knowledge.interface import get_species
 
 bundle = get_species_probes(session, "spath")
 bundle.model_dump(mode="json")   # -> {species_code, probe_set_id, status, is_stale, generated_at, probes: [...]}
 ```
 
 - `get_species_probes(session, species_code)` — the species' **approved** probe
-  set (with every probe's actions and exemplars), or `None`. `assessment` asks
+  set (with every probe's actions), or `None`. `assessment` asks
   its probes as VLM checks; `advice` builds care plans from its actions.
 - `get_species(session, species_code)` — catalogue row (`SpeciesRead`) or
   `None`. `assessment.assess_frames` uses the scientific name (or the code if
   the species is unregistered).
-- `get_care_knowledge(session, species_code, query_vector=None, *, limit=4, max_chars=2500)`
-  — free botanical text for the species (chunks, else the active research
-  document), or `None`. **Not used by the pipeline**: that text is not approved,
-  and assessment and advice use only the approved probe set.
 
 ## Internal design
 
@@ -195,7 +187,7 @@ src/knowledge/
 ├── generation.py       # document → draft probe set; the seam to mlops.knowledge.
 │                       #   No HTTP: an endpoint and a scheduler call the same function
 ├── review.py           # the human verdict → mlops.knowledge (best-effort)
-├── interface.py        # get_species_probes / get_species / get_care_knowledge
+├── interface.py        # get_approved_checks / get_species_probes / get_species
 ├── service.py          # DB reads/writes; no HTTP, no LLM, no mlops import
 ├── schemas.py          # Pydantic request/response + interface payloads
 ├── db.py               # KNOWLEDGE_SCHEMA, Base (own MetaData), JsonB, utcnow(),
@@ -205,8 +197,7 @@ src/knowledge/
     ├── species.py      # Species
     ├── document.py     # ResearchDocument
     ├── probe.py        # ProbeSet, Probe
-    ├── action.py       # ProbeAction
-    └── exemplar.py     # ProbeExemplar
+    └── action.py       # ProbeAction
 ```
 
 - `service.py` never imports `mlops`; `generation.py` and `review.py` are the
@@ -217,14 +208,12 @@ src/knowledge/
 - Surrogate `uuid` primary keys everywhere except `species` (whose
   `species_code` is a real domain identifier).
 - `JsonB` = `jsonb` on PostgreSQL, `json` on SQLite (local checks / tests).
-- Foreign keys are declared for every parent link. The one cross-column rule —
-  `probe_exemplar.license` required when `origin = 'web'` — is left to the
-  service layer for now and can become a DB `CHECK` later.
-- Enum-like columns (`status`, `care_need`, `role`, `urgency`, `origin`)
+- Foreign keys are declared for every parent link.
+- Enum-like columns (`status`, `care_need`, `urgency`)
   are plain `text`; the partial unique indexes above are what the status values
   are actually load-bearing for.
 - ORM `relationship()`s connect each parent to its children, with
-  `cascade="all, delete-orphan"` down `probe_set → probe → action/exemplar`
+  `cascade="all, delete-orphan"` down `probe_set → probe → action`
   (deleting a set removes everything under it). `species → documents` and
   `document → probe_sets` have no cascade — and nothing in the API deletes rows
   anyway; superseded rows are archived instead.

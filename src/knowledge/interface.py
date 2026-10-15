@@ -12,7 +12,6 @@ Return values are Pydantic models that serialise straight to JSON
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from knowledge.models import Species
@@ -79,45 +78,3 @@ def get_species(session: Session, species_code: str) -> SpeciesRead | None:
     species = session.get(Species, species_code)
     return None if species is None else SpeciesRead.model_validate(species)
 
-
-def get_care_knowledge(
-    session: Session,
-    species_code: str,
-    query_vector: list[float] | None = None,
-    *,
-    limit: int = 4,
-    max_chars: int = 2500,
-) -> str | None:
-    """Free botanical text for the species (chunks, else the active document).
-
-    Not used by the pipeline: the text is not approved. ``assessment`` and
-    ``advice`` use only the approved probe set (:func:`get_species_probes`).
-    """
-    from knowledge.models.chunk import KnowledgeChunk
-    from knowledge.models.document import ResearchDocument
-
-    try:
-        stmt = select(KnowledgeChunk).where(KnowledgeChunk.species_code == species_code)
-        if query_vector is not None and KnowledgeChunk.embedding is not None:
-            stmt = stmt.order_by(KnowledgeChunk.embedding.cosine_distance(query_vector))
-        stmt = stmt.limit(limit)
-        chunks = list(session.scalars(stmt).all())
-        if chunks:
-            parts = [f"### {c.topic}\n{c.content}" for c in chunks]
-            return "\n\n".join(parts)[:max_chars]
-    except Exception:
-        logger.warning(
-            "Vector chunk retrieval failed for species=%s, falling back to document",
-            species_code,
-            exc_info=True,
-        )
-
-    doc_stmt = select(ResearchDocument).where(
-        ResearchDocument.species_code == species_code,
-        ResearchDocument.status == "active",
-    )
-    doc = session.scalars(doc_stmt).first()
-    if doc and doc.body:
-        return doc.body[:max_chars]
-
-    return None

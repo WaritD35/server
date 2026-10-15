@@ -18,7 +18,7 @@ one observation, then apply the 0-token Event Engine.
 - Ask the species' **approved checks** (`knowledge.get_approved_checks`) in the
   same VLM prompt: screening checks first, then by `priority`, at most
   `MAX_PROBE_CHECKS` (8). A stale set is still used, with a warning. Only the
-  structured checks are sent; `get_care_knowledge` and research text are not.
+  structured checks are sent; research text is not.
 - Each VLM JSON answer is checked against `RunObservation`'s JSON Schema, then
   as that model. A failure is repaired once; a run that stays invalid is dropped
   and does not join the vote.

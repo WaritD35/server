@@ -7,7 +7,6 @@ other contexts (``assessment``, ``advice``) consume as JSON.
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,19 +76,6 @@ class ActionRead(BaseModel):
     expected_signal: str | None
 
 
-class ExemplarRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    role: str
-    storage_key: str
-    content_type: str | None
-    label: dict[str, Any] | None
-    origin: str
-    license: str | None
-    caption: str | None
-
-
 class ProbeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,7 +90,6 @@ class ProbeRead(BaseModel):
     not_this: str
     evidence_quote: str | None
     actions: list[ActionRead]
-    exemplars: list[ExemplarRead]
 
 
 class ProbeSetSummary(BaseModel):

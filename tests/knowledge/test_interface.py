@@ -36,7 +36,6 @@ def test_returns_json_serialisable_bundle(
     probe = payload["probes"][0]
     assert probe["care_need"] == "water_deficit"
     assert probe["actions"][0]["expect_max_hours"] == 48
-    assert probe["exemplars"][0]["label"] == {"verdict": "worse", "severity": 2}
 
 
 # --------------------------------------------------------------------------- #

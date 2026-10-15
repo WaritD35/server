@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, Text, Uuid
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from advice.db import ADVICE_SCHEMA, Base, utcnow
@@ -30,10 +28,6 @@ class CarePlan(Base):
     status_label: Mapped[str] = mapped_column(Text, nullable=False)
     assessment: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    # actions_json maintained for backwards-compatibility / expand-contract transition
-    actions_json: Mapped[list[dict[str, Any]] | None] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), nullable=True, default=list
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -83,21 +77,3 @@ class CarePlanAction(Base):
 
     care_plan: Mapped[CarePlan] = relationship("CarePlan", back_populates="actions")
 
-
-class Diagnosis(Base):
-    """Analytical diagnosis record."""
-
-    __tablename__ = "diagnosis"
-    __table_args__ = (
-        Index("ix_diagnosis_plant_id", "plant_id"),
-        Index("ix_diagnosis_run_id", "run_id"),
-        {"schema": ADVICE_SCHEMA},
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    plant_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    diagnosis: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
-    )

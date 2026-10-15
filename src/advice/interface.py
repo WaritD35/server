@@ -5,37 +5,30 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from advice.models import CarePlan, CarePlanAction
-from advice.schemas import ActionType, CareAction, CarePlanActionRead, CarePlanRead
+from advice.models import CarePlan
+from advice.schemas import ActionType, CareAction, CarePlanRead
 
 
 def _extract_actions(plan: CarePlan) -> list[CareAction]:
-    """Extract actions prioritizing normalized CarePlanAction table rows."""
-    if plan.actions:
-        return [
-            CareAction(
-                id=a.action_id,
-                priority=a.priority,
-                action=a.action,
-                label=a.label,
-                type=(
-                    ActionType(a.action_type)
-                    if a.action_type in ActionType._value2member_map_
-                    else ActionType.OTHER
-                ),
-                approved_action_id=a.approved_action_id,
-                check_slug=a.check_slug,
-                urgency=a.urgency,
-                expect_typical_hours=a.expect_typical_hours,
-                expect_max_hours=a.expect_max_hours,
-            )
-            for a in plan.actions
-        ]
-
-    # Fallback to legacy actions_json if normalized table has no entries
+    """The plan's actions, from its ``care_plan_action`` rows (priority order)."""
     return [
-        CareAction.model_validate(act)
-        for act in (plan.actions_json if isinstance(plan.actions_json, list) else [])
+        CareAction(
+            id=a.action_id,
+            priority=a.priority,
+            action=a.action,
+            label=a.label,
+            type=(
+                ActionType(a.action_type)
+                if a.action_type in ActionType._value2member_map_
+                else ActionType.OTHER
+            ),
+            approved_action_id=a.approved_action_id,
+            check_slug=a.check_slug,
+            urgency=a.urgency,
+            expect_typical_hours=a.expect_typical_hours,
+            expect_max_hours=a.expect_max_hours,
+        )
+        for a in plan.actions
     ]
 
 
@@ -81,31 +74,3 @@ def get_latest_care_plan_for_plant(session: Session, plant_id: uuid.UUID) -> Car
         created_at=plan.created_at,
     )
 
-
-def get_care_plan_actions(session: Session, care_plan_id: str) -> list[CarePlanActionRead]:
-    """Retrieve normalized individual care action rows for a given care plan."""
-    stmt = (
-        select(CarePlanAction)
-        .where(CarePlanAction.care_plan_id == care_plan_id)
-        .order_by(CarePlanAction.priority.asc())
-    )
-    rows = session.scalars(stmt).all()
-    return [
-        CarePlanActionRead(
-            id=r.id,
-            care_plan_pk=r.care_plan_pk,
-            care_plan_id=r.care_plan_id,
-            action_id=r.action_id,
-            priority=r.priority,
-            action=r.action,
-            label=r.label,
-            action_type=r.action_type,
-            approved_action_id=r.approved_action_id,
-            check_slug=r.check_slug,
-            urgency=r.urgency,
-            expect_typical_hours=r.expect_typical_hours,
-            expect_max_hours=r.expect_max_hours,
-            created_at=r.created_at,
-        )
-        for r in rows
-    ]

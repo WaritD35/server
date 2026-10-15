@@ -37,7 +37,6 @@ from knowledge.db import KNOWLEDGE_SCHEMA, Base, utcnow
 if TYPE_CHECKING:
     from knowledge.models.action import ProbeAction
     from knowledge.models.document import ResearchDocument
-    from knowledge.models.exemplar import ProbeExemplar
 
 #: One approved set per species; drafts and archived sets are unconstrained.
 _APPROVED_ONLY = text("status = 'approved'")
@@ -130,10 +129,6 @@ class Probe(Base):
         back_populates="probe",
         cascade="all, delete-orphan",
         order_by="ProbeAction.ordering",
-    )
-    exemplars: Mapped[list["ProbeExemplar"]] = relationship(
-        back_populates="probe",
-        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid

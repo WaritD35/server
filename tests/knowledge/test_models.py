@@ -13,7 +13,6 @@ from knowledge.hashing import content_hash
 from knowledge.models import (
     Probe,
     ProbeAction,
-    ProbeExemplar,
     ProbeSet,
     ResearchDocument,
     Species,
@@ -56,8 +55,6 @@ def test_metadata_covers_every_table() -> None:
         "probe_set",
         "probe",
         "probe_action",
-        "probe_exemplar",
-        "knowledge_chunks",
     }
 
 
@@ -94,15 +91,6 @@ def test_generation_round_trips(session_factory: sessionmaker[Session]) -> None:
                 expected_signal="leaf_recovery",
             )
         )
-        session.add(
-            ProbeExemplar(
-                probe_id=probe.id,
-                role="worse_severe",
-                storage_key="spath/water_deficit.leaf_droop/worse_severe/001.jpg",
-                label={"verdict": "worse", "severity": 2},
-                origin="own_capture",
-            )
-        )
         session.commit()
 
     with session_factory() as session:
@@ -113,10 +101,6 @@ def test_generation_round_trips(session_factory: sessionmaker[Session]) -> None:
         action = session.scalars(select(ProbeAction)).one()
         assert action.expect_max_hours == 48
         assert action.ordering == 0  # default
-
-        exemplar = session.scalars(select(ProbeExemplar)).one()
-        assert exemplar.label == {"verdict": "worse", "severity": 2}
-        assert exemplar.license is None
 
 
 def test_freshness_view_flags_outdated_research(

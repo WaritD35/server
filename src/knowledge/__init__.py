@@ -2,7 +2,7 @@
 
 A person researches a species and writes it up as text (`research_document`); that
 text is fed to an LLM which produces `probe`s (single-question probes) and their
-`probe_action`s. Few-shot exemplar images live in the `exemplars` MinIO bucket.
+`probe_action`s.
 Owns the `knowledge` Postgres schema.
 
 Nothing is edited in place: a revised research text is a new row that archives

@@ -17,8 +17,8 @@
 2. **Strict Context Isolation (No Cross-Schema Foreign Keys):** Bounded contexts never share database foreign keys. All cross-context references use immutable `UUID` values, and data dependencies are resolved via published Python interfaces (`<context>.interface`).
 3. **UUID identifiers & timezone timestamps:** Table primary keys are native PostgreSQL `UUID` values (`uuid.uuid4()`), except `knowledge.species`, whose primary key is `species_code` (`TEXT`). Every timestamp is a timezone-aware `TIMESTAMPTZ` (`DateTime(timezone=True)`) normalized to UTC.
 4. **Deterministic Gatekeeper Pattern:** The VLM probe (`mlops.assessment.run_probe`) runs first and writes an observation. The Event Engine and milestone detection that follow are 0-token Python, so a healthy/stable scan does not invoke the advice or companion LLMs.
-5. **Approved, structured knowledge only:** Checks and care steps come from the approved probe set through `get_approved_checks`: assessment gets every approved check, advice only the checks that fired, each with its approved basis (`evidence_quote`) and its approved actions in order. Nothing is searched and no research text is sent. `get_care_knowledge` is not used by the pipeline.
-6. **Alembic Multi-Schema Migrations:** All database schemas, extensions (`vector`), tables, and indexes are managed through version-controlled Alembic migrations (`include_schemas=True`).
+5. **Approved, structured knowledge only:** Checks and care steps come from the approved probe set through `get_approved_checks`: assessment gets every approved check, advice only the checks that fired, each with its approved basis (`evidence_quote`) and its approved actions in order. Nothing is searched and no research text is sent.
+6. **Alembic Multi-Schema Migrations:** All database schemas, tables, and indexes are managed through version-controlled Alembic migrations (`include_schemas=True`).
 
 ---
 
@@ -157,7 +157,6 @@ erDiagram
         TEXT status_label
         TEXT assessment
         REAL confidence
-        JSONB actions_json "deprecated/compat"
         TIMESTAMPTZ created_at
     }
 
@@ -175,14 +174,6 @@ erDiagram
         TEXT urgency
         INTEGER expect_typical_hours
         INTEGER expect_max_hours
-        TIMESTAMPTZ created_at
-    }
-
-    "advice.diagnosis" {
-        UUID id PK
-        UUID plant_id "registry.plant.id"
-        UUID run_id
-        TEXT diagnosis
         TIMESTAMPTZ created_at
     }
 
@@ -264,27 +255,6 @@ erDiagram
         INTEGER expect_max_hours
     }
 
-    "knowledge.probe_exemplar" {
-        UUID id PK
-        UUID probe_id FK
-        TEXT role
-        TEXT storage_key UK
-        TEXT origin
-    }
-
-    "knowledge.knowledge_chunks" {
-        UUID id PK
-        TEXT species_code
-        TEXT topic
-        TEXT content
-        JSONB metadata_json
-        VECTOR_1536 embedding
-        UUID research_document_id FK
-        UUID probe_set_id FK
-        TEXT source_content_hash
-        TIMESTAMPTZ created_at
-    }
-
     %% Orchestrator Schema
     "orchestrator.pipeline_run" {
         UUID id PK
@@ -308,7 +278,6 @@ erDiagram
     "knowledge.research_document" ||--o{ "knowledge.probe_set" : "generates"
     "knowledge.probe_set" ||--o{ "knowledge.probe" : "contains"
     "knowledge.probe" ||--o{ "knowledge.probe_action" : "remedies"
-    "knowledge.probe" ||--o{ "knowledge.probe_exemplar" : "illustrated_by"
     "vision.capture" ||--o{ "vision.processed_frame" : "yields"
     "registry.plant" ||--o{ "vision.capture" : "device_uploads"
     "registry.plant" ||--o{ "assessment.observation" : "daily_snapshots"
@@ -336,7 +305,7 @@ erDiagram
 | **`advice`** | `advice` | Care Advisor. Runs only for `CARE_ADVICE_REQUIRED`. Fetches only the fired checks (basis + approved actions) with `get_approved_checks`; steps come from those `knowledge.probe_action` rows | ✅ Ollama / OpenAI via `mlops/advice/` + Langfuse |
 | **`companion`** | `companion` | 1st-person plant character persona projection, two-tier memory, fact validator. Table is `companion.messages` | ✅ Ollama / OpenAI via `mlops/companion/` + Langfuse |
 | **`action`** | `action` | Append-only care logs (`care_event`), button click deduplication, watering timestamps | No |
-| **`knowledge`** | `knowledge` | Species catalogue, research documents, probe sets, probe actions, exemplar photos. The pipeline reads only the approved probe set, through `get_approved_checks` | LLM generates probe drafts |
+| **`knowledge`** | `knowledge` | Species catalogue, research documents, probe sets, probe actions. The pipeline reads only the approved probe set, through `get_approved_checks` | LLM generates probe drafts |
 | **`orchestrator`**| `orchestrator`| Schedule tick (`enqueue_due`), `claim_next`, in-process stage machine. Statuses: `queued`, `running`, `succeeded`, `skipped`, `failed` | No |
 | **`mlops`** | *(shared)* | Unified LLM factory (Ollama + OpenAI), VLM backends (`VLM_PROVIDER=local\|vllm`), Langfuse prompt management, traces | AI runtime infrastructure |
 
@@ -419,37 +388,20 @@ sequenceDiagram
 
 ---
 
-## 5. Database, pgvector & Alembic Architecture
+## 5. Database & Alembic Architecture
 
-### 5.1 pgvector column on knowledge chunks
-* **Docker image:** `pgvector/pgvector:pg16` in `compose.yaml`.
-* **PostgreSQL extension:** `CREATE EXTENSION IF NOT EXISTS vector;` in the first Alembic revision.
-* **Table** (created from `knowledge.models.chunk.KnowledgeChunk`; there is no HNSW index in the migrations):
-  ```sql
-  CREATE TABLE knowledge.knowledge_chunks (
-      id UUID PRIMARY KEY,
-      species_code TEXT NOT NULL,
-      topic TEXT NOT NULL,
-      content TEXT NOT NULL,
-      metadata_json JSONB NOT NULL,
-      embedding VECTOR(1536),
-      research_document_id UUID,
-      probe_set_id UUID,
-      source_content_hash TEXT,
-      created_at TIMESTAMPTZ NOT NULL
-  );
-  ```
-
-### 5.2 Alembic Multi-Schema Migrations
+### 5.1 Alembic Multi-Schema Migrations
 * **Configuration:** `alembic.ini` and `alembic/env.py` set up at the server repository root.
 * **Multi-Schema Inspection:** `context.configure(..., include_schemas=True)` to track all bounded context schemas.
 * **Migration order** (`alembic/versions/`):
-  1. `001_init_extensions_and_schemas` (`001_init_ext_schemas`): enables `vector`, creates schemas `auth`, `registry`, `knowledge`, `action`, `orchestrator`, `assessment`, `advice`, `companion`, and creates those contexts' tables from the current models. `advice.care_plan_action` is not created here.
+  1. `001_init_extensions_and_schemas` (`001_init_ext_schemas`): creates schemas `auth`, `registry`, `knowledge`, `action`, `orchestrator`, `assessment`, `advice`, `companion`, and creates those contexts' tables from the current models. `advice.care_plan_action` is not created here.
   2. `002_create_care_plan_action_table`: creates `advice.care_plan_action`.
   3. `003_create_vision_schema` (`003_vision_schema`): creates schema `vision` and tables `vision.capture`, `vision.processed_frame`.
   4. `004_observation_probe_results`: adds `probe_set_id` and `probe_results_json` on `assessment.observation` when missing.
   5. `005_care_plan_action_approved_source`: adds `approved_action_id`, `check_slug`, `urgency`, `expect_typical_hours`, and `expect_max_hours` on `advice.care_plan_action` when missing.
-  6. `006_knowledge_chunk_provenance`: adds `research_document_id`, `probe_set_id`, and `source_content_hash` on `knowledge.knowledge_chunks`, plus a GIN index on `to_tsvector('english', content)`. No HNSW index.
+  6. `006_knowledge_chunk_provenance`: added passage-retrieval columns and a GIN index on `knowledge.knowledge_chunks` (withdrawn; skipped when the table does not exist).
+  7. `007_drop_knowledge_chunk_provenance` (`007_drop_chunk_provenance`): undoes 006 (skipped when the table does not exist).
+  8. `008_drop_unused_tables_and_columns` (`008_drop_unused`): drops `knowledge.knowledge_chunks`, the `vector` extension (on databases that had it), `advice.diagnosis`, `advice.care_plan.actions_json`, and `knowledge.probe_exemplar` — none of them was read. The database image is plain `postgres:16`.
 * **Execution:** Run as an isolated `migrate` service in `compose.yaml` before `web` starts up:
   ```yaml
   migrate:

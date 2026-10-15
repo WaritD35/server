@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from advice.schemas import ActionType, CareAction, CarePlanRead
 from assessment.models import Observation
 from assessment.schemas import HealthStatus, TriggerDecision
-from companion.interface import get_latest_message, get_message_by_run_id
+from companion.interface import get_latest_message
 from companion.service import (
     generate_for_plant,
     generate_info_request_message,
@@ -67,10 +67,6 @@ def test_generate_for_plant_no_action(session: Session):
     latest = get_latest_message(session, plant_id)
     assert latest is not None
     assert latest.id == msg_read.id
-
-    by_run = get_message_by_run_id(session, run_id)
-    assert by_run is not None
-    assert by_run.id == msg_read.id
 
 
 def test_generate_for_plant_request_more_info(session: Session):

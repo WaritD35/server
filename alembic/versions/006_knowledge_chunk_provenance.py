@@ -20,7 +20,15 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _has_chunks() -> bool:
+    # 001 builds tables from the current models, which no longer include
+    # knowledge_chunks (dropped in 008), so a fresh database never has it.
+    return sa.inspect(op.get_bind()).has_table("knowledge_chunks", schema="knowledge")
+
+
 def upgrade() -> None:
+    if not _has_chunks():
+        return
     op.execute(
         sa.text(
             "ALTER TABLE knowledge.knowledge_chunks "
@@ -47,6 +55,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_chunks():
+        return
     op.execute(sa.text("DROP INDEX IF EXISTS knowledge.ix_knowledge_chunks_content_fts"))
     op.execute(sa.text("DROP INDEX IF EXISTS knowledge.ix_knowledge_chunk_probe_set"))
     op.execute(

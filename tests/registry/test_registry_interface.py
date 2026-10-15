@@ -11,7 +11,6 @@ from core.users.models import User
 from registry import (
     get_plant,
     get_plant_by_device,
-    get_plants,
     is_plant_owned_by,
     list_plant_ids,
     service,
@@ -77,19 +76,6 @@ def test_archived_plant_stays_resolvable(
         assert plant is not None and not plant.is_active
         # …but the device no longer resolves to it
         assert get_plant_by_device(session, "dev-1") is None
-
-
-def test_get_plants_skips_unknown_ids(
-    session_factory: sessionmaker[Session], alice: User
-) -> None:
-    with session_factory() as session:
-        a = _register(session, alice, "a")
-        b = _register(session, alice, "b")
-        missing = uuid.uuid4()
-
-        found = get_plants(session, [a, missing, b, a])
-        assert set(found) == {a, b}
-        assert found[b].name == "b"
 
 
 def test_get_plant_by_device(

@@ -141,7 +141,6 @@ def test_probe_set_endpoints(
     probe = detail["probes"][0]
     assert probe["slug"] == "water_deficit.leaf_droop"
     assert probe["actions"][0]["expect_max_hours"] == 48
-    assert probe["exemplars"][0]["role"] == "worse_severe"
 
     missing = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"/knowledge/probe-sets/{missing}").status_code == 404

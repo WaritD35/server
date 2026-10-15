@@ -11,16 +11,15 @@ Public surface:
 
 - :data:`router` — the ``/registry`` endpoints (plant CRUD + device lookup),
   mounted by ``main_web``.
-- :func:`list_plant_ids`, :func:`get_plant`, :func:`get_plants`,
-  :func:`get_plant_by_device`, :func:`is_plant_owned_by` — in-process
-  interface for the other contexts; plants come back as :class:`PlantRead`.
+- :func:`list_plant_ids`, :func:`get_plant`, :func:`get_plant_by_device`,
+  :func:`is_plant_owned_by` — in-process interface for the other contexts;
+  plants come back as :class:`PlantRead`.
 """
 
 from registry.api import router
 from registry.interface import (
     get_plant,
     get_plant_by_device,
-    get_plants,
     is_plant_owned_by,
     list_plant_ids,
 )
@@ -30,7 +29,6 @@ __all__ = [
     "PlantRead",
     "get_plant",
     "get_plant_by_device",
-    "get_plants",
     "is_plant_owned_by",
     "list_plant_ids",
     "router",

@@ -23,7 +23,6 @@ dependencies = [
     "langfuse>=4.15.1",
     "langchain>=1.4.0",
     "langchain-openai>=1.6.0",
-    "pgvector>=0.3.0",
     "langchain-ollama>=1.1.0",
     "opencv-python-headless>=4.10",
     "numpy>=2.0",

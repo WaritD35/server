@@ -24,7 +24,7 @@ from capture import models as capture_models  # noqa: F401 - register tables
 from capture.db import Base as CaptureBase
 from companion import models as companion_models  # noqa: F401 - register tables
 from companion.db import Base as CompanionBase
-from companion.interface import get_message_by_run_id
+from companion.models import MessageRecord
 from core.db import Base as AuthBase
 from knowledge import models as knowledge_models  # noqa: F401 - register tables
 from knowledge.db import Base as KnowledgeBase
@@ -81,6 +81,10 @@ def e2e_session_factory() -> Iterator[sessionmaker[Session]]:
 
 def _ok_capture(*_args: object, **_kwargs: object) -> SimpleNamespace:
     return SimpleNamespace(quality_passed=True, quality_reason=None)
+
+
+def _message_for_run(session: Session, run_id: uuid.UUID) -> MessageRecord | None:
+    return session.scalars(select(MessageRecord).where(MessageRecord.run_id == run_id)).first()
 
 
 def _write_observation(
@@ -178,7 +182,7 @@ def test_pipeline_branch_healthy_no_action(e2e_session_factory: sessionmaker[Ses
         assert care_plan is None
 
         # Check Companion message
-        comp_msg = get_message_by_run_id(session, run_id)
+        comp_msg = _message_for_run(session, run_id)
         assert comp_msg is not None
         assert comp_msg.source == "template_steady"
         assert "thriving" in comp_msg.message or "feeling great" in comp_msg.message
@@ -297,7 +301,7 @@ def test_pipeline_branch_low_confidence_request_info(
         care_plan = get_care_plan(session, run_id)
         assert care_plan is None
 
-        comp_msg = get_message_by_run_id(session, run_id)
+        comp_msg = _message_for_run(session, run_id)
         assert comp_msg is not None
         assert comp_msg.source == "template_info_request"
         assert "photo" in comp_msg.message or "blurry" in comp_msg.message
@@ -338,12 +342,7 @@ def test_pipeline_branch_unhealthy_care_advice(
         assert care_plan is not None
         assert len(care_plan.actions) > 0
 
-        from advice.interface import get_care_plan_actions
-
-        rel_actions = get_care_plan_actions(session, care_plan.care_plan_id)
-        assert len(rel_actions) == len(care_plan.actions)
-
-        comp_msg = get_message_by_run_id(session, run_id)
+        comp_msg = _message_for_run(session, run_id)
         assert comp_msg is not None
         assert comp_msg.source in ("llm", "template_fallback")
         assert len(comp_msg.message) > 10
