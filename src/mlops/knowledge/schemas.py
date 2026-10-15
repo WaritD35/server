@@ -68,9 +68,30 @@ class GeneratedAction(BaseModel):
     instruction: Annotated[str, Field(min_length=4, max_length=400)]
     urgency: Urgency
     #: When the effect usually becomes visible.
-    expect_typical_hours: Annotated[int, Field(ge=1, le=MAX_EXPECT_HOURS)]
-    #: The grace period: no re-alert until this has elapsed.
-    expect_max_hours: Annotated[int, Field(ge=1, le=MAX_EXPECT_HOURS)]
+    expect_typical_hours: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=MAX_EXPECT_HOURS,
+            description=(
+                "Hours after the action until its effect is usually visible in a photo."
+            ),
+        ),
+    ]
+    #: The grace period: no re-alert until this has elapsed. The ordering rule
+    #: below cannot be expressed in JSON Schema, so the description states it.
+    expect_max_hours: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=MAX_EXPECT_HOURS,
+            description=(
+                "Grace period in hours: the latest point by which the effect should "
+                "be visible; no new alert is raised before it. Must be greater than "
+                f"or equal to expect_typical_hours, and at most {MAX_EXPECT_HOURS}."
+            ),
+        ),
+    ]
     #: What recovery looks like, as a snake_case tag (``leaf_recovery``).
     expected_signal: Annotated[str | None, Field(pattern=NAME_PATTERN)] = None
 
