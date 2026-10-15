@@ -170,7 +170,7 @@ class ProbeInput:
         versions that still ask species-specific approved probes.
         """
         knowledge = self.plant_knowledge.strip()
-        plant_knowledge = f"Plant knowledge:\\n{knowledge}" if knowledge else ""
+        plant_knowledge = f"Plant knowledge:\n{knowledge}" if knowledge else ""
         checks = ""
         if self.checks:
             lines = [

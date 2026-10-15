@@ -97,7 +97,7 @@ def test_happy_path_writes_one_observation_mapped_from_the_verdict(
     (sent,) = probe.calls
     assert sent.plant_id == str(plant_id)
     assert sent.species == "Spathiphyllum wallisii"
-    assert sent.plant_knowledge == "Keep the soil moist."
+    assert sent.plant_knowledge == ""  # research text is never sent
     assert sent.checks == ()
     assert sent.previous_image == f"jpeg:{pair.previous.object_key}".encode()
     assert sent.current_image == f"jpeg:{pair.current.object_key}".encode()

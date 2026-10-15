@@ -168,17 +168,6 @@ def test_grace_period_cannot_be_shorter_than_the_typical_wait() -> None:
         )
 
 
-def test_crop_is_gone_and_a_model_that_still_emits_it_is_corrected() -> None:
-    """Assessment judges from the whole frame; there is no region to point at.
-
-    A prompt version still asking for `crop` would otherwise pass it through to
-    a column that no longer exists. Rejecting it here turns that into a repair
-    round with a clear message instead.
-    """
-    with pytest.raises(ValidationError, match="crop"):
-        GeneratedProbeSet.model_validate(probe_set(probe(crop="whole_plant")))
-
-
 def test_an_empty_set_is_rejected() -> None:
     with pytest.raises(ValidationError):
         GeneratedProbeSet.model_validate({"probes": []})

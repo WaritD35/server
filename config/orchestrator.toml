@@ -14,7 +14,7 @@ poll_seconds = 30
 timezone = "Asia/Tokyo"
 
 # When a pipeline run is queued for every live plant.
-schedule = ["07:00", "12:00", "17:00"]
+schedule = ["07:00"]
 
 # A slot is still queued this long after its time (e.g. the server was
 # restarting at 07:00). Past this window the slot is skipped.

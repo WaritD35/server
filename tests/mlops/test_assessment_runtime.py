@@ -81,7 +81,9 @@ class FakePrompt:
 
     def compile(self, **variables: Any) -> str:
         self.compiled_with.append(variables)
-        return f"Describe the plant.\n{variables.get('plant_knowledge', '')}\n{variables.get('probe_checks', '')}"
+        knowledge = variables.get("plant_knowledge", "")
+        checks = variables.get("probe_checks", "")
+        return f"Describe the plant.\n{knowledge}\n{checks}"
 
 
 class FakeBackend:
@@ -235,10 +237,12 @@ def test_no_checks_compile_to_empty_sections() -> None:
     assert probe.as_prompt_variables() == {"plant_knowledge": "", "probe_checks": ""}
 
 
-def test_plant_knowledge_compiles_to_the_probes_2_section() -> None:
-    probe = dataclasses.replace(PROBE, plant_knowledge="Keep the soil moist.")
+def test_plant_knowledge_is_a_titled_section_on_its_own_line() -> None:
+    probe = dataclasses.replace(PROBE, plant_knowledge="  Keep the soil moist. ")
 
-    assert probe.as_prompt_variables()["plant_knowledge"] == "Plant knowledge:\\nKeep the soil moist."
+    section = probe.as_prompt_variables()["plant_knowledge"]
+
+    assert section == "Plant knowledge:\nKeep the soil moist."
 
 
 # --------------------------------------------------------------------------- #

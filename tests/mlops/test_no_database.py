@@ -10,11 +10,15 @@ experiment CLI starts needing infrastructure it never uses. This test fails at
 the import, before anyone discovers it by having Docker stopped.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src"
+
+#: Windows cannot start Python's networking modules without these.
+_WINDOWS_ENV = {k: os.environ[k] for k in ("SYSTEMROOT", "WINDIR") if k in os.environ}
 
 PROBE = """
 import sys
@@ -39,7 +43,7 @@ def test_the_experiment_cli_imports_no_database_and_no_bounded_context() -> None
         [sys.executable, "-c", PROBE],
         capture_output=True,
         text=True,
-        env={"PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin"},
+        env={**_WINDOWS_ENV, "PYTHONPATH": str(SRC), "PATH": "/usr/bin:/bin"},
         check=False,
     )
 

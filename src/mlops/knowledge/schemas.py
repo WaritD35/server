@@ -42,10 +42,6 @@ SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 #: An identifier segment: ``water_deficit``, ``light_excess``, ….
 NAME_PATTERN = r"^[a-z][a-z0-9_]*$"
 
-#: A month, in hours. An action whose effect takes longer than this is not
-#: something a daily-cadence assessment loop can verify.
-MAX_EXPECT_HOURS = 720
-
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -72,7 +68,6 @@ class GeneratedAction(BaseModel):
         int,
         Field(
             ge=1,
-            le=MAX_EXPECT_HOURS,
             description=(
                 "Hours after the action until its effect is usually visible in a photo."
             ),
@@ -84,11 +79,10 @@ class GeneratedAction(BaseModel):
         int,
         Field(
             ge=1,
-            le=MAX_EXPECT_HOURS,
             description=(
                 "Grace period in hours: the latest point by which the effect should "
                 "be visible; no new alert is raised before it. Must be greater than "
-                f"or equal to expect_typical_hours, and at most {MAX_EXPECT_HOURS}."
+                "or equal to expect_typical_hours."
             ),
         ),
     ]

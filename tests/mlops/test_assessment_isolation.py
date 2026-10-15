@@ -14,6 +14,9 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 
+#: Windows cannot start Python's networking modules without these.
+_WINDOWS_ENV = {k: os.environ[k] for k in ("SYSTEMROOT", "WINDIR") if k in os.environ}
+
 PROBE = """
 import sys
 import mlops.assessment.backends
@@ -39,6 +42,7 @@ print(",".join(forbidden))
 
 def test_the_assessment_runtime_imports_no_bounded_context_database_or_torch() -> None:
     env = {
+        **_WINDOWS_ENV,
         "PYTHONPATH": str(SRC),
         "PATH": "/usr/bin:/bin",
         "VLM_PROVIDER": "vllm",
