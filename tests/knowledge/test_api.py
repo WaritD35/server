@@ -31,7 +31,8 @@ def test_knowledge_api_requires_superuser(client: TestClient) -> None:
         is_active=True,
         is_superuser=False,
     )
-    assert client.get("/knowledge/species").status_code == 403
+    # owners read the species list to pick one for their plant
+    assert client.get("/knowledge/species").status_code == 200
     assert client.post(
         "/knowledge/species",
         json={"species_code": "x", "scientific_name": "y"},

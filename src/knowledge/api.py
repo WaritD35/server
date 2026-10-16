@@ -1,7 +1,8 @@
 """``/knowledge`` router — research-document authoring, generation and review.
 
 Every endpoint is admin-only (``CurrentSuperuser``): this is the authoring
-surface, not something plant owners call.
+surface, not something plant owners call. The one exception is the species
+list, which any signed-in user may read to pick a species for a plant.
 
 Documents are append-only (no edit, no delete) and a species has at most one
 approved probe set at a time. Mounted by ``main_web``.
@@ -20,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.db import get_session
-from core.users import CurrentSuperuser
+from core.users import CurrentSuperuser, CurrentUser
 from knowledge import generation, review, service
 from knowledge.interface import get_species_probes as _species_probes
 from knowledge.models import ProbeSet, ResearchDocument, Species
@@ -108,8 +109,12 @@ def create_species(
         ) from None
 
 
-@router.get("/species", response_model=list[SpeciesRead])
-def list_species(session: SessionDep, _user: CurrentSuperuser) -> Sequence[Species]:
+@router.get(
+    "/species",
+    response_model=list[SpeciesRead],
+    summary="Any signed-in user: the species a plant can be registered as",
+)
+def list_species(session: SessionDep, _user: CurrentUser) -> Sequence[Species]:
     return service.list_species(session)
 
 

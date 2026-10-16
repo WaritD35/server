@@ -112,12 +112,14 @@ only ever writes `draft` rows.
 ## HTTP API (`/knowledge`, mounted by `main_web`)
 
 All endpoints require an authenticated **superuser** (`core.users.CurrentSuperuser`)
-— this is the authoring surface, not something plant owners call.
+— this is the authoring surface, not something plant owners call. The one
+exception is `GET /knowledge/species`: any signed-in user reads it to pick a
+species for a plant.
 
 | Method & path | Purpose |
 |---|---|
 | `POST /knowledge/species` | register a species (409 if `species_code` is taken) |
-| `GET /knowledge/species` | list registered species |
+| `GET /knowledge/species` | list registered species (**any signed-in user**) |
 | `POST /knowledge/documents` | add a research document; the species' previous one is archived (404 if `species_code` is unknown) |
 | `GET /knowledge/documents?species_code=&status=` | list documents, newest first; `status` is `active` or `archived` |
 | `GET /knowledge/documents/pending` | the generation backlog: active documents with no probe set |
