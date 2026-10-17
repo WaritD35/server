@@ -32,13 +32,7 @@ PROBE_PROMPT: Final[str] = "assessment/plant_observation_pair"
 
 PROBE_PROMPT_TYPE: Final[str] = "text"
 
-#: ``plant_knowledge`` is the free species knowledge block used by the
-#: older two-image probe. ``probe_checks`` remains available for newer
-#: prompt versions.
-PROBE_VARIABLES: Final[tuple[str, ...]] = (
-    "plant_knowledge",
-    "probe_checks",
-)
+PROBE_VARIABLES: Final[tuple[str, ...]] = ("probe_checks",)
 
 RETIRED_VARIABLES: Final[dict[str, str]] = {
     "retrieved_passages": "",
@@ -49,13 +43,9 @@ RETIRED_VARIABLES: Final[dict[str, str]] = {
 CACHE_TTL_SECONDS: Final[int] = 60
 
 #: The text :mod:`mlops.assessment.seed` registers. It asks for exactly
-#: :class:`mlops.assessment.schemas.RunObservation`; Image 2's
-#: ``visible_stress_level`` is what
-#: :func:`~mlops.assessment.aggregate.derive_run_decision` turns into the health
-#: status.
 BOOTSTRAP_PROMPT: Final[str] = """\
 You inspect two photographs of the same plant and describe only what is visible.
-{{plant_knowledge}}
+{{probe_checks}}
 
 Image input:
 - Image 1 = first plant observation
@@ -66,7 +56,6 @@ Describe both plant images separately, then describe only the visible difference
 
 Important:
 - Describe Image 1 and Image 2 separately before describing differences.
-- Use plant knowledge only to interpret visible traits for the stated species.
 - Do not diagnose the biological cause.
 - Do not give care advice.
 - Do not infer dates, watering, disease, or causes from the image.
@@ -105,10 +94,18 @@ Return ONLY valid JSON in exactly this format:
     }
   ],
   "comparison_summary": "short description of how the visible plant condition differs",
-  "model_confidence": 0.0
-}
+  "model_confidence": 0.0,
 
 Field rules:
+- Evaluate every human-approved check in probe_checks and return its result in probe_findings.
+- Each answer must be exactly yes, no, or cannot_tell.
+- The text "not this" describes a harmless look-alike; it is not an answer value.
+- Only report visible Image 2 symptoms supported by a yes probe finding.
+- A no or cannot_tell finding must not create a current observation.
+- current_observations.type must be a generic type from the list below.
+  Never put a probe slug or care_need in type.
+- If every check is answered no, set Image 2 visible_stress_level to none
+  and current_observations to [].
 - Use separate observations for Image 1 and Image 2.
 - visible_stress_level must be exactly one of: none, mild, moderate, severe, cannot_tell.
 - Use visible_stress_level "none" when the plant appears visually healthy, with upright or naturally relaxed leaves, mostly even green color, and no clear visible damage.
@@ -143,7 +140,7 @@ Field rules:
 #: which only the deployment knows, so the seed CLI requires ``--model``.
 BOOTSTRAP_CONFIG: Final[dict[str, Any]] = {
     "runs": 5,
-    "temperature": 0.7,
+    "temperature": 0.3,
     # The probes_2-style prompt asks for the observation JSON only.
     "max_new_tokens": 1024,
 }

@@ -1,9 +1,10 @@
 """Majority vote over repeated VLM runs, and the verdict it produces.
 
-Ported from PR #15 (``assessment.aggregate``). The decision rules are unchanged:
-each run's status comes from the current frame's stress level, the majority
-wins, ties lean cautious, and only the runs that agree with the verdict
-contribute observations. Health statuses are spelled as
+Each run's status is based on the current frame's stress level, then adjusted by
+the approved checks when present: a positive check prevents a healthy verdict,
+all checks answered ``no`` means healthy, and incomplete checks remain cautious.
+The majority wins, ties lean cautious, and only the runs that agree with the
+verdict contribute observations. Health statuses are spelled as
 ``assessment.schemas.HealthStatus`` spells them; severities are limited to what
 ``assessment.service.SEVERITY_RANKS`` ranks.
 """
@@ -135,8 +136,10 @@ def observation_stress_level(observation: dict[str, Any], key: str) -> str | Non
     return normalize_stress_level(section.get("visible_stress_level"))
 
 
-def derive_run_decision(observation: dict[str, Any]) -> RunDecision:
-    """Derive health status and current observations from one VLM run."""
+def derive_run_decision(
+    observation: dict[str, Any], probe_slugs: Sequence[str] = ()
+) -> RunDecision:
+    """Derive status and observations, using approved checks when supplied."""
 
     image_2_stress = observation_stress_level(observation, "image_2_observation")
     image_2_score = stress_score(image_2_stress)
@@ -150,9 +153,31 @@ def derive_run_decision(observation: dict[str, Any]) -> RunDecision:
     else:
         health_status = "unhealthy"
 
+    observations = clean_current_observations(observation, image_2_stress)
+    if probe_slugs:
+        findings = observation.get("probe_findings")
+        answers = (
+            {
+                finding.get("slug"): finding.get("answer")
+                for finding in findings
+                if isinstance(finding, dict)
+            }
+            if isinstance(findings, list)
+            else {}
+        )
+        probe_answers = [answers.get(slug, "cannot_tell") for slug in probe_slugs]
+        if all(answer == "no" for answer in probe_answers):
+            health_status = "healthy"
+            observations = []
+        elif "yes" in probe_answers:
+            if health_status == "healthy":
+                health_status = "possibly_unhealthy"
+        elif health_status == "healthy":
+            health_status = "possibly_unhealthy"
+
     return RunDecision(
         health_status=health_status,
-        observations=clean_current_observations(observation, image_2_stress),
+        observations=observations,
         model_confidence=clamp_model_confidence(observation.get("model_confidence")),
     )
 
@@ -388,16 +413,20 @@ def aggregate_probe_findings(
 def aggregate_observations(
     runs: list[RunObservation], probe_slugs: Sequence[str] = ()
 ) -> ProbeVerdict:
-    """Aggregate repeated, already-validated VLM runs into one verdict.
+    """Aggregate repeated, validated VLM runs into one probe-led verdict.
 
-    ``probe_slugs`` are the species-specific checks the prompt listed; their
-    answers are voted on independently of the health status.
+    When checks were asked, their per-run answers inform health status: any
+    ``yes`` is at least possibly unhealthy, all ``no`` is healthy, and missing
+    or unclear answers defer cautiously to visible stress. Without checks, the
+    visible-stress decision is unchanged.
     """
 
     if not runs:
         raise AggregateError("At least one observation is required.")
 
-    decisions = [derive_run_decision(run.model_dump()) for run in runs]
+    decisions = [
+        derive_run_decision(run.model_dump(), probe_slugs=probe_slugs) for run in runs
+    ]
     health_status = majority_health_status(decisions)
     matching = [
         decision for decision in decisions if decision.health_status == health_status

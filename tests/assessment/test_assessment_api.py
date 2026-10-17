@@ -64,6 +64,8 @@ def test_run_assesses_the_latest_pair_and_returns_the_observation(
         {"type": "leaf_yellowing", "severity": "moderate", "description": "Lower leaf"}
     ]
     assert body["consensus"] == {"agreement": 0.8, "runs": 5, "model_stated_average": 0.72}
+    assert body["probe_set_id"] is None
+    assert body["probe_results"] == []
     bucket = bucket_names()["frames_derived"]
     assert body["image_refs"] == [
         f"s3://{bucket}/{ready_plant}/prev.jpg",

@@ -67,6 +67,8 @@ def _observation_read(row: Observation) -> ObservationRead:
         observations=row.observations_json if isinstance(row.observations_json, list) else [],
         consensus=row.consensus_json,
         image_refs=row.image_refs_json,
+        probe_set_id=row.probe_set_id,
+        probe_results=row.probe_results_json if isinstance(row.probe_results_json, list) else [],
         description=row.description,
         companion_message=row.companion_message,
         created_at=row.created_at,

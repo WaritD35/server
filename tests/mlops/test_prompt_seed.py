@@ -56,7 +56,7 @@ def test_assessment_first_version_goes_live(monkeypatch: pytest.MonkeyPatch) -> 
     assert kwargs["name"] == assessment_prompts.PROBE_PROMPT
     assert kwargs["type"] == "text"
     assert kwargs["prompt"] == assessment_prompts.BOOTSTRAP_PROMPT
-    assert kwargs["config"] == {"model": "internvl", "runs": 5, "temperature": 0.7,
+    assert kwargs["config"] == {"model": "internvl", "runs": 5, "temperature": 0.3,
                                 "max_new_tokens": 1024}
 
 

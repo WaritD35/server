@@ -174,8 +174,17 @@ class ProbeInput:
         checks = ""
         if self.checks:
             lines = [
-                "Species-specific checks. Answer every one about Image 2 in"
-                ' "probe_findings", using the id before the colon as "slug":'
+                "Human-approved, species-specific assessment checks. Evaluate each "
+                "check against Image 2 and return one probe_findings entry per check. "
+                'Use the exact id before the colon as "slug" and answer only yes, '
+                "no, or cannot_tell. The 'not this' text is a look-alike warning, "
+                "not an answer value. In current_observations, report only visible "
+                "symptoms supported by a yes finding; never put a probe slug or "
+                "care_need in current_observations.type. Its type must be exactly "
+                "one of: leaf_yellowing, brown_edges, drooping, curling, "
+                "visible_damage, discoloration, other. No other type is allowed. "
+                "A no or "
+                "cannot_tell finding must not create an observation."
             ]
             for check in self.checks:
                 lines.extend(check.as_prompt_lines())
@@ -280,7 +289,6 @@ def run_probe(
     text = _compile_prompt(prompt, {**probe.as_prompt_variables(), **prompts.RETIRED_VARIABLES})
     images = [probe.previous_image, probe.current_image]
     slugs = _asked_slugs(prompt, probe)
-
     client = get_client(COMPONENT)
     # One trace per frame pair, with each run (and its repair) nested inside it
     # as a generation; `propagate_attributes(prompt=…)` ties those generations
@@ -358,11 +366,13 @@ def _run_once(
     """One run: generate, validate, and on failure one repair with the errors fed back."""
     raw = _generate(client, backend, text, images, config, name=f"vlm-run-{index}")
     try:
-        return _parse(raw, slugs)
+        parsed = _parse(raw, slugs)
+        return parsed
     except (AggregateError, ValidationError, JsonSchemaError) as error:
         repair = _repair_prompt(text, raw, error)
     raw = _generate(client, backend, repair, images, config, name=f"vlm-run-{index}-repair")
-    return _parse(raw, slugs)
+    parsed = _parse(raw, slugs)
+    return parsed
 
 
 def _generate(
@@ -400,6 +410,21 @@ def _generate(
 
 def _parse(raw: str, slugs: tuple[str, ...] = ()) -> RunObservation:
     data = prepare_observation_json(extract_json_object(raw))
+    findings = data.get("probe_findings")
+    if isinstance(findings, list):
+        allowed = set(slugs)
+        seen: set[str] = set()
+        kept = []
+        for finding in findings:
+            if not isinstance(finding, dict):
+                kept.append(finding)
+                continue
+            slug = finding.get("slug")
+            if not isinstance(slug, str) or slug not in allowed or slug in seen:
+                continue
+            seen.add(slug)
+            kept.append(finding)
+        data["probe_findings"] = kept
     try:
         validate_observation_json(data)
     except JsonSchemaError as error:

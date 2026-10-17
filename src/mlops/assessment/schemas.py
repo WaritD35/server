@@ -144,10 +144,7 @@ def prepare_observation_json(data: dict[str, Any]) -> dict[str, Any]:
             prepared[key] = _lower_fields(block, "visible_stress_level")
     observations = prepared.get("current_observations")
     if isinstance(observations, list):
-        prepared["current_observations"] = [
-            _lower_fields(item, "type", "severity") if isinstance(item, dict) else item
-            for item in observations
-        ]
+        prepared["current_observations"] = [_prepare_observation(item) for item in observations]
     findings = prepared.get("probe_findings")
     if isinstance(findings, list):
         prepared["probe_findings"] = [
@@ -177,4 +174,17 @@ def _prepare_finding(item: dict[str, Any]) -> dict[str, Any]:
     slug = copied.get("slug")
     if isinstance(slug, str):
         copied["slug"] = slug.strip()
+    if copied.get("answer") not in ProbeAnswer.__args__:
+        copied["answer"] = "cannot_tell"
+    return copied
+
+
+def _prepare_observation(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    copied = _lower_fields(item, "type", "severity")
+    if copied.get("type") not in ObservationType.__args__:
+        copied["type"] = "other"
+    if copied.get("severity") not in Severity.__args__:
+        copied["severity"] = "mild"
     return copied

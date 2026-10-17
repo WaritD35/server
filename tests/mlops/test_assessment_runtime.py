@@ -227,7 +227,11 @@ def test_the_prompt_is_compiled_with_exactly_the_declared_variables(
     run_probe(PROBE)
 
     (compiled,) = prompt.compiled_with
-    assert set(compiled) == set(prompts.PROBE_VARIABLES) | set(prompts.RETIRED_VARIABLES)
+    assert set(compiled) == (
+        set(prompts.PROBE_VARIABLES)
+        | {"plant_knowledge"}
+        | set(prompts.RETIRED_VARIABLES)
+    )
     assert compiled["plant_knowledge"] == ""
 
 
@@ -277,6 +281,12 @@ def test_checks_are_listed_in_the_prompt_section_in_order() -> None:
     assert "- water_deficit.leaf_droop: Are the leaves drooping?" in section
     assert "yes looks like: Leaves hang below the pot rim." in section
     assert "not this: Natural arching of old leaves." in section
+    assert "answer only yes, no, or cannot_tell" in section
+    assert "never put a probe slug or care_need" in section
+    assert (
+        "exactly one of: leaf_yellowing, brown_edges, drooping, curling, "
+        "visible_damage, discoloration, other"
+    ) in section
 
 
 def test_each_check_is_voted_on_across_the_runs(
@@ -354,21 +364,33 @@ def test_an_extra_json_field_is_rejected_by_the_schema(
     assert "note" in backend.calls[1]["prompt"]
 
 
-def test_an_unknown_slug_is_sent_back_for_a_repair(
+def test_unknown_and_duplicate_slugs_are_dropped_without_repair(
     prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    raw = answer(
+        probe_findings=[
+            finding("made_up.check", "yes"),
+            finding(DROOP.slug, "yes"),
+            finding(DROOP.slug, "no"),
+        ]
+    )
     backend = use_backend(
         monkeypatch,
         FakeBackend(
-            answer(probe_findings=[finding("made_up.check", "yes")]),
-            answer(probe_findings=[finding(DROOP.slug, "no")]),
+            raw,
+            answer(probe_findings=[finding(DROOP.slug, "yes")]),
+            answer(probe_findings=[finding(DROOP.slug, "yes")]),
         ),
     )
 
     verdict = run_probe(dataclasses.replace(WITH_CHECKS, checks=(DROOP,)))
+    parsed = runtime._parse(raw, (DROOP.slug,))
 
-    assert "unknown slug 'made_up.check'" in backend.calls[1]["prompt"]
-    assert verdict.probe_results[0]["answer"] == "no"
+    assert len(backend.calls) == 3
+    assert verdict.probe_results[0]["answer"] == "yes"
+    assert [(item.slug, item.answer) for item in parsed.probe_findings] == [
+        (DROOP.slug, "yes")
+    ]
 
 
 def test_a_prompt_without_the_checks_section_records_no_results(
@@ -526,7 +548,7 @@ def test_the_valid_run_threshold_is_half_the_runs_rounded_up(
         run_probe(PROBE)
 
 
-def test_out_of_range_severities_never_reach_the_verdict(
+def test_invalid_severity_is_normalized_without_repair(
     prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     critical = answer(
@@ -535,17 +557,68 @@ def test_out_of_range_severities_never_reach_the_verdict(
             {"type": "drooping", "severity": "critical", "description": "Leaves collapsed."}
         ],
     )
-    fixed = answer(
-        "severe",
-        current_observations=[
-            {"type": "drooping", "severity": "severe", "description": "Leaves collapsed."}
-        ],
-    )
-    use_backend(monkeypatch, FakeBackend(critical, fixed, fixed, fixed))
+    backend = use_backend(monkeypatch, FakeBackend(critical, answer(), answer()))
 
     verdict = run_probe(PROBE)
 
+    assert len(backend.calls) == 3
     assert {o["severity"] for o in verdict.observations} <= {"mild", "moderate", "severe"}
+    parsed = runtime._parse(critical)
+    assert parsed.current_observations[0].severity == "mild"
+
+
+def test_invalid_observation_type_is_normalized_without_repair(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    invalid = answer(
+        "mild",
+        current_observations=[
+            {
+                "type": "overwatering.yellow_lower_leaves",
+                "severity": "mild",
+                "description": "Lower leaves are yellow.",
+            }
+        ],
+    )
+    backend = use_backend(monkeypatch, FakeBackend(invalid, answer(), answer()))
+
+    verdict = run_probe(PROBE)
+
+    assert len(backend.calls) == 3
+    parsed = runtime._parse(invalid)
+    assert parsed.current_observations[0].type == "other"
+
+
+def test_invalid_probe_answer_becomes_cannot_tell_and_keeps_slug(
+    prompt: FakePrompt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe = dataclasses.replace(
+        PROBE,
+        checks=(
+            ProbeCheck(
+                slug="low_light.green_emerging_flowers",
+                question="Are emerging flowers green?",
+                worse_looks_like="Green flowers",
+                better_looks_like="White flowers",
+                not_this="Green leaves",
+            ),
+        ),
+    )
+    invalid = answer(
+        probe_findings=[
+            {
+                "slug": "low_light.green_emerging_flowers",
+                "answer": "not this",
+                "evidence": "No flowers are visible.",
+            }
+        ]
+    )
+    backend = use_backend(monkeypatch, FakeBackend(invalid, answer(), answer()))
+
+    verdict = run_probe(probe)
+
+    assert len(backend.calls) == 3
+    assert verdict.probe_results[0]["slug"] == "low_light.green_emerging_flowers"
 
 
 # --------------------------------------------------------------------------- #

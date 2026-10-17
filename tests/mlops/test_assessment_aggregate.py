@@ -39,6 +39,7 @@ def run(
     stress: str,
     *,
     observations: list[dict[str, str]] | None = None,
+    probe_findings: list[dict[str, str]] | None = None,
     confidence: float = 0.8,
     image_2: dict[str, str] | None = None,
 ) -> RunObservation:
@@ -49,6 +50,7 @@ def run(
         "current_observations": observations or [],
         "comparison_summary": "Little has changed.",
         "model_confidence": confidence,
+        "probe_findings": probe_findings or [],
     }
     return RunObservation.model_validate(payload)
 
@@ -76,6 +78,43 @@ def test_the_current_image_stress_level_decides_the_status(stress: str, expected
     verdict = aggregate_observations([run(stress)])
 
     assert verdict.health_status == expected
+
+
+def test_a_fired_approved_probe_prevents_a_healthy_verdict() -> None:
+    verdict = aggregate_observations(
+        [run("none", probe_findings=[{"slug": "water_deficit.leaf_droop", "answer": "yes"}])],
+        ["water_deficit.leaf_droop"],
+    )
+
+    assert verdict.health_status == "possibly_unhealthy"
+
+
+def test_all_approved_probes_answered_no_means_healthy() -> None:
+    slugs = ["water_deficit.leaf_droop", "low_humidity.brown_tips"]
+    findings = [{"slug": slug, "answer": "no"} for slug in slugs]
+
+    verdict = aggregate_observations(
+        [
+            run(
+                "severe",
+                observations=[concern("brown_edges", "severe", "Brown edges.")],
+                probe_findings=findings,
+            )
+        ],
+        slugs,
+    )
+
+    assert verdict.health_status == "healthy"
+    assert verdict.observations == []
+
+
+def test_unanswered_approved_probe_is_not_treated_as_normal() -> None:
+    verdict = aggregate_observations(
+        [run("none", probe_findings=[{"slug": "water_deficit.leaf_droop", "answer": "no"}])],
+        ["water_deficit.leaf_droop", "low_humidity.brown_tips"],
+    )
+
+    assert verdict.health_status == "possibly_unhealthy"
 
 
 def test_the_status_is_spelled_the_way_the_assessment_context_spells_it() -> None:

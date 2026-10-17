@@ -433,12 +433,14 @@ def assess_frames(
     # Only approved, structured knowledge reaches the VLM: the species' approved
     # checks. Nothing is searched and no research text is sent.
     probe_set_id, probes = _approved_checks(session, plant.species_code)
+    previous_image = read_frame(pair.previous)
+    current_image = read_frame(pair.current)
     verdict = run_probe(
         ProbeInput(
             plant_id=str(plant_id),
             species=species_name,
-            previous_image=read_frame(pair.previous),
-            current_image=read_frame(pair.current),
+            previous_image=previous_image,
+            current_image=current_image,
             run_id=str(run_id),
             checks=tuple(check for check, _ in probes),
         )

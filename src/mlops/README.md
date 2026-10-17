@@ -197,7 +197,10 @@ check is voted on over all valid runs like the health status (ties lean to
 `yes`) and comes back in `ProbeVerdict.probe_results`. A version without
 `{{probe_checks}}` still runs, but its checks are not asked or recorded (a
 warning is logged) — register the new bootstrap text with the seed CLI to
-start asking them.
+start asking them. When checks are present, a run with any `yes` cannot be
+healthy; a run where every check is `no` is healthy; missing or unclear answers
+remain cautious and defer to the visible-stress assessment. Without checks,
+the prior visible-stress behavior is unchanged.
 
 Its `config` **must** carry `runs`, `temperature`, `max_new_tokens` and `model`.
 A missing key, `runs` outside `1..8`, or `max_new_tokens` outside `1..2048` raises
